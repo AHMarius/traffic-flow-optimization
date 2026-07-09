@@ -1,0 +1,215 @@
+@startuml ClientApp_AsyncBoundary
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+skinparam shadowing false
+skinparam roundcorner 8
+top to bottom direction
+skinparam nodesep 100
+skinparam ranksep 150
+
+title Client Aplication
+
+package "Data Access Layer (DAL)" {
+
+  class DatabaseFacade {
+    -repository : IRepository
+    -dispatcher : IEventDispatcher
+    -pending : Map<UUID, Future<QueryResult>>
+    +DatabaseFacade(repository : IRepository, dispatcher : IEventDispatcher)
+    +submit(request : QueryRequest, priority : Priority) : Future<QueryResult>
+  }
+
+  DatabaseFacade ..|> DatabaseEventListener
+
+  interface IRepository {
+    +submit(request : QueryRequest) : void
+  }
+
+  class SQLiteRepository {
+    -executor : IQueryExecutor
+    -dispatcher : IEventDispatcher
+    +SQLiteRepository(executor : IQueryExecutor, dispatcher : IEventDispatcher)
+    +submit(request : QueryRequest) : void
+  }
+  IRepository <|.. SQLiteRepository
+
+  interface IQueryExecutor {
+    +enqueue(request : QueryRequest) : void
+    +process() : void
+  }
+
+  class DatabaseExecutor {
+    -queue : IRequestQueue
+    -dispatcher : IEventDispatcher
+    +DatabaseExecutor(queue : IRequestQueue, dispatcher : IEventDispatcher)
+    +enqueue(request : QueryRequest) : void
+    +process() : void
+  }
+  IQueryExecutor <|.. DatabaseExecutor
+
+  interface IRequestQueue {
+    +push(request : QueryRequest) : void
+    +pop() : QueryRequest
+    +isEmpty() : Boolean
+  }
+
+  class RequestQueue {
+    -pending : PriorityQueue<QueryRequest>
+    +push(request : QueryRequest) : void
+    +pop() : QueryRequest
+    +isEmpty() : Boolean
+  }
+  IRequestQueue <|.. RequestQueue
+
+  enum Priority {
+    LOW
+    NORMAL
+    HIGH
+    CRITICAL
+  }
+
+  abstract class QueryRequest {
+    -id : UUID
+    -statement : String
+    -parameters : Map<String, Object>
+    -priority : Priority
+    -createdAt : DateTime
+    +QueryRequest(statement : String, parameters : Map)
+    +getPriority() : Priority
+    +setPriority(priority : Priority) : void
+  }
+
+  class WindowQueryRequest {
+    -windowId : Int
+    +WindowQueryRequest(windowId : Int)
+  }
+  QueryRequest <|-- WindowQueryRequest
+  QueryRequest --> Priority
+
+  class QueryResult {
+    -rows : List<Map<String, Object>>
+    -affectedRows : int
+    -success : Boolean
+  }
+
+  abstract class DatabaseEvent {
+    -occurredAt : DateTime
+  }
+
+  class QueryCompletedEvent {
+    -requestId : UUID
+    -result : QueryResult
+  }
+
+  class QueryFailedEvent {
+    -requestId : UUID
+    -message : String
+  }
+  DatabaseEvent <|-- QueryCompletedEvent
+  DatabaseEvent <|-- QueryFailedEvent
+
+  interface IEventDispatcher {
+    +publish(event : DatabaseEvent) : void
+    +subscribe(listener : DatabaseEventListener) : void
+    +unsubscribe(listener : DatabaseEventListener) : void
+  }
+
+  interface DatabaseEventListener {
+    +onEvent(event : DatabaseEvent) : void
+  }
+
+  class EventBus {
+    -listeners : List<DatabaseEventListener>
+    +publish(event : DatabaseEvent) : void
+    +subscribe(listener : DatabaseEventListener) : void
+    +unsubscribe(listener : DatabaseEventListener) : void
+  }
+  IEventDispatcher <|.. EventBus
+  EventBus ..> DatabaseEventListener
+
+   DatabaseFacade --> IRepository
+  DatabaseFacade --> IEventDispatcher
+  DatabaseFacade ..> QueryRequest
+  DatabaseFacade ..> Priority
+  DatabaseFacade ..> QueryResult
+
+  SQLiteRepository --> IQueryExecutor
+  SQLiteRepository --> IEventDispatcher
+  SQLiteRepository ..> QueryRequest
+
+  DatabaseExecutor --> IRequestQueue
+  DatabaseExecutor --> IEventDispatcher
+  DatabaseExecutor ..> QueryRequest
+
+  RequestQueue o-- QueryRequest
+
+  QueryCompletedEvent --> QueryResult
+  QueryCompletedEvent --> QueryRequest
+  QueryFailedEvent --> QueryRequest
+  IEventDispatcher ..> DatabaseEvent
+}
+
+package "GUI Layer (GUI)" {
+
+ class GUIFacade {
+    -database : DatabaseFacade
+    -windowManager : WindowManager
+    +GUIFacade(database : DatabaseFacade, windowManager : WindowManager)
+    +makeRequest(request : WindowQueryRequest, priority : Priority) : void
+  }
+
+  class WindowManager {
+    -windowCache : List<Window>
+    -currentWindow : Window
+    +getWindow() : Boolean
+    +cacheWindow(window : Window) : void
+    +updateWindow(window : Window) : void
+    +showError(message : String) : void
+  }
+
+  class WindowLoader {
+    +loadWindow(window : Window) : void
+  }
+
+  class Window {
+    -windowId : Int
+    -panelList : List<Panel>
+  }
+
+  abstract class UIComponent {
+    -id : String
+    -visible : Boolean
+    +render() : void
+  }
+
+  class Button {
+    -label : String
+    +onClick() : void
+  }
+
+  class TextView {
+    -text : String
+    +setText(text : String) : void
+  }
+
+  class Panel {
+    -children : List<UIComponent>
+    +addChild(component : UIComponent) : void
+    +removeChild(component : UIComponent) : void
+  }
+
+  UIComponent <|-- Button
+  UIComponent <|-- TextView
+  UIComponent <|-- Panel
+  Panel o-- UIComponent
+  Window o-- Panel
+
+  GUIFacade --> WindowManager
+  WindowManager --> WindowLoader
+  WindowManager o-- Window
+}
+
+GUIFacade --> DatabaseFacade
+GUIFacade ..> QueryResult
+
+@enduml

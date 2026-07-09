@@ -1,0 +1,241 @@
+@startuml
+
+skinparam linetype ortho
+skinparam shadowing false
+skinparam roundcorner 10
+top to bottom direction
+title Server Application
+
+package "Data Access Layer (DAL)" {
+
+ class DatabaseFacade {
+    -repository : IRepository
+    +DatabaseFacade(repository : IRepository)
+    +submit(request : QueryRequest) : QueryResult
+  }
+
+  interface IRepository {
+    +submit(request : QueryRequest) : QueryResult
+  }
+
+  class SQLiteRepository {
+    -executor : IQueryExecutor
+    +SQLiteRepository(executor : IQueryExecutor)
+    +submit(request : QueryRequest) : QueryResult
+  }
+
+  interface IQueryExecutor {
+    +execute(request : QueryRequest) : QueryResult
+  }
+
+  class DatabaseExecutor {
+    -connection : IConnection
+    +DatabaseExecutor(connection : IConnection)
+    +execute(request : QueryRequest) : QueryResult
+  }
+
+  interface IConnection {
+    +open() : void
+    +close() : void
+    +execute(sql : String, params : List<Object>) : QueryResult
+  }
+
+  class SQLiteConnection {
+    -connectionString : String
+    +SQLiteConnection(connectionString : String)
+    +open() : void
+    +close() : void
+    +execute(sql : String, params : List<Object>) : QueryResult
+  }
+
+  class QueryResult {
+    -rows : List<Map<String, Object>>
+    -affectedRows : int
+    -success : Boolean
+    -errorMessage : String
+  }
+
+  class QueryRequest {
+    -id : UUID
+    -sql : String
+    -params : List<Object>
+  }
+
+  IRepository <|.. SQLiteRepository
+  IQueryExecutor <|.. DatabaseExecutor
+  IConnection <|.. SQLiteConnection
+
+  DatabaseFacade --> IRepository
+  DatabaseFacade ..> QueryRequest
+  DatabaseFacade ..> QueryResult
+
+  SQLiteRepository --> IQueryExecutor
+  SQLiteRepository ..> QueryRequest
+  SQLiteRepository ..> QueryResult
+
+  DatabaseExecutor --> IConnection
+  DatabaseExecutor ..> QueryRequest
+  DatabaseExecutor ..> QueryResult
+}
+
+package "CommonUtils" {
+  class Node {
+  }
+  class Graph {
+  }
+}
+
+package "Task Manager (TM)" {
+
+  ' ---- Public facade: orchestrates split -> simulate -> aggregate ----
+  class TaskManagerFacade {
+    -splitter : TaskSplitter
+    -microSimulator : IMicroSimulator
+    -macroSimulator : IMacroSimulator
+    -aggregator : ResultAggregator
+    +TaskManagerFacade(splitter : TaskSplitter, microSimulator : IMicroSimulator, macroSimulator : IMacroSimulator, aggregator : ResultAggregator)
+    +submit(task : Task) : SimulationResult
+  }
+
+  class Task {
+    -id : UUID
+    -domain : Graph
+    -subdomain : Graph
+  }
+
+  class TaskSplitter {
+    +TaskSplitter()
+    +split(task : Task) : SplitTask
+  }
+
+  class SplitTask {
+    -microPart : Task
+    -macroPart : Task
+  }
+
+  interface IMicroSimulator {
+    +simulate(task : Task) : PartialResult
+  }
+
+  interface IMacroSimulator {
+    +simulate(task : Task) : PartialResult
+  }
+
+  class PartialResult {
+    -taskId : UUID
+    -data : Map<String, Object>
+  }
+
+  class ResultAggregator {
+    +ResultAggregator()
+    +combine(microResult : PartialResult, macroResult : PartialResult) : SimulationResult
+  }
+
+  class SimulationResult {
+    -taskId : UUID
+    -data : Map<String, Object>
+    -success : Boolean
+  }
+
+  package "Micro Simulator (mSim)" {
+    class MicroSimulator {
+      +simulate(task : Task) : PartialResult
+    }
+  }
+
+  package "Macro Simulator (MSim)" {
+    class MacroSimulator {
+      +simulate(task : Task) : PartialResult
+    }
+  }
+
+  IMicroSimulator <|.. MicroSimulator
+  IMacroSimulator <|.. MacroSimulator
+
+  TaskManagerFacade --> TaskSplitter
+  TaskManagerFacade --> IMicroSimulator
+  TaskManagerFacade --> IMacroSimulator
+  TaskManagerFacade --> ResultAggregator
+  TaskManagerFacade ..> Task
+  TaskManagerFacade ..> SimulationResult
+
+  TaskSplitter ..> Task
+  TaskSplitter ..> SplitTask
+  SplitTask o-- "2" Task
+
+  IMicroSimulator ..> PartialResult
+  IMacroSimulator ..> PartialResult
+
+  ResultAggregator ..> PartialResult
+  ResultAggregator ..> SimulationResult
+}
+
+Task ..> Graph
+
+package "Communication (COM)" {
+
+  interface ICommunicationChannel {
+    +parseRequest(input : String) : Command
+  }
+
+  class CliChannel {
+    +parseRequest(input : String) : Command
+  }
+
+  class ApiChannel {
+    +parseRequest(input : String) : Command
+    +establishConnection() : void
+    +respond(status : ExecutionStatus) : void
+  }
+
+  enum ExecutionStatus {
+    SUCCESS
+    STOPPED
+    INTERRUPTED
+    FAILED
+    WAITING_FOR_INPUT
+  }
+
+  abstract class Command {
+    -data : String
+  }
+
+  class PreloadCommand
+  class LoadAndRunCommand
+  class RunCommand
+  class StoreCommand
+  class ResetCommand
+
+  class CommandDispatcher {
+    +dispatch(command : Command) : void
+    +awaitSubmoduleStatus(status : SubmoduleStatus) : void
+  }
+
+  enum SubmoduleStatus {
+    SUBMODULE_FINISHED
+    SUBMODULE_FAILED
+    SUBMODULE_INTERRUPTED
+    SUBMODULE_WAITING_FOR_RESOURCES
+  }
+
+  ICommunicationChannel <|.. CliChannel
+  ICommunicationChannel <|.. ApiChannel
+
+  Command <|-- PreloadCommand
+  Command <|-- LoadAndRunCommand
+  Command <|-- RunCommand
+  Command <|-- StoreCommand
+  Command <|-- ResetCommand
+
+  ICommunicationChannel ..> Command
+  ApiChannel ..> ExecutionStatus
+  CommandDispatcher ..> SubmoduleStatus
+
+  CliChannel --> CommandDispatcher
+  ApiChannel --> CommandDispatcher
+
+  CommandDispatcher --> TaskManagerFacade
+  CommandDispatcher --> DatabaseFacade
+}
+
+@enduml
