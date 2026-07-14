@@ -1,4 +1,4 @@
-@startuml ClientApp_AsyncBoundary
+@startuml ClientApp_Extended
 skinparam classAttributeIconSize 0
 skinparam linetype ortho
 skinparam shadowing false
@@ -7,8 +7,11 @@ top to bottom direction
 skinparam nodesep 100
 skinparam ranksep 150
 
-title Client Aplication
+title Client Application (extins)
 
+' ============================================================
+' Existing Data Access Layer (DAL) – kept unchanged
+' ============================================================
 package "Data Access Layer (DAL)" {
 
   class DatabaseFacade {
@@ -127,7 +130,7 @@ package "Data Access Layer (DAL)" {
   IEventDispatcher <|.. EventBus
   EventBus ..> DatabaseEventListener
 
-   DatabaseFacade --> IRepository
+  DatabaseFacade --> IRepository
   DatabaseFacade --> IEventDispatcher
   DatabaseFacade ..> QueryRequest
   DatabaseFacade ..> Priority
@@ -149,13 +152,77 @@ package "Data Access Layer (DAL)" {
   IEventDispatcher ..> DatabaseEvent
 }
 
+' ============================================================
+' NEW: CommonUtils for client-side domain objects
+' ============================================================
+package "CommonUtils" {
+
+  class Nod {
+    -id : Int
+    -fanioane : Set<String>
+    -latitudine : Double
+    -longitudine : Double
+    +Nod(id : Int)
+    +getFanion(cheie : String) : Boolean
+    +setFanion(cheie : String, valoare : Boolean) : void
+  }
+
+  class Muchie {
+    -nodSursa : Nod
+    -nodDestinatie : Nod
+    -distanta : Double
+    -densitate : Double
+    -vitezaMedie : Double
+    -factorCongestie : Double
+    -pondere : Double
+    +Muchie(nodSursa : Nod, nodDestinatie : Nod, distanta : Double)
+    +calculeazaPondere() : Double
+  }
+
+  class Graf {
+    -noduri : List<Nod>
+    -muchii : List<Muchie>
+    +Graf()
+    +adaugaNod(nod : Nod) : void
+    +adaugaMuchie(muchie : Muchie) : void
+    +getVecini(nod : Nod) : List<Nod>
+    +getSubgraf(noduriInteres : List<Nod>) : Graf
+  }
+
+  class Scenariu {
+    -id : UUID
+    -nume : String
+    -graf : Graf
+    -intervalOrar : String
+    -conditiiMediu : Map<String, Object>
+    -dataCreare : DateTime
+    +Scenariu(nume : String, graf : Graf)
+    +getGraf() : Graf
+  }
+
+  Graf "1" o-- "*" Nod : contine
+  Graf "1" o-- "*" Muchie : contine
+  Muchie --> "2" Nod : leaga
+  Scenariu --> Graf
+}
+
+' ============================================================
+' Existing GUI Layer – kept unchanged, but extended with new features
+' ============================================================
 package "GUI Layer (GUI)" {
 
- class GUIFacade {
+  class GUIFacade {
     -database : DatabaseFacade
     -windowManager : WindowManager
-    +GUIFacade(database : DatabaseFacade, windowManager : WindowManager)
+    -commDispatcher : CommandDispatcher
+    -localSimulator : LocalSimulator
+    -visualizer : TrafficVisualization
+    -scenarioControl : ScenarioControl
+    -configComparator : ConfigComparator
+    +GUIFacade(database : DatabaseFacade, windowManager : WindowManager, ... )
     +makeRequest(request : WindowQueryRequest, priority : Priority) : void
+    +sendCommand(command : Command) : void
+    +startLocalSimulation() : void
   }
 
   class WindowManager {
@@ -207,9 +274,130 @@ package "GUI Layer (GUI)" {
   GUIFacade --> WindowManager
   WindowManager --> WindowLoader
   WindowManager o-- Window
+
+  ' ---- ADDED: GUI feature classes (all new) ----
+  class LocalSimulator {
+    -graf : Graf
+    -scenariuCurent : Scenariu
+    +LocalSimulator(graf : Graf)
+    +simplifiedStep() : void
+    +interpolate(serverUpdate : SimulationSnapshot) : void
+  }
+
+  class TrafficVisualization {
+    -graf : Graf
+    +renderNetwork() : void
+    +renderVehicles(agents : List<AgentDisplay>) : void
+    +renderHeatmap() : void
+  }
+
+  class ScenarioControl {
+    -listaScenarii : List<Scenariu>
+    +selecteazaScenariu(id : UUID) : Scenariu
+    +configureazaParametri(parametri : Map) : void
+  }
+
+  class ConfigComparator {
+    -modele : List<SimulationResult>
+    +compara(m1 : SimulationResult, m2 : SimulationResult) : ComparisonReport
+    +afiseazaComparatie() : void
+  }
+
+  ' Relationships among new classes and existing
+  LocalSimulator --> Graf
+  LocalSimulator --> Scenariu
+  TrafficVisualization --> Graf
+  ScenarioControl --> Scenariu
+  ConfigComparator --> SimulationResult
+
+  GUIFacade --> LocalSimulator
+  GUIFacade --> TrafficVisualization
+  GUIFacade --> ScenarioControl
+  GUIFacade --> ConfigComparator
 }
 
+
+package "Communication (COM)" {
+
+  interface ICommunicationChannel {
+    +parseRequest(input : String) : Command
+    +sendCommand(command : Command) : void
+  }
+
+  class CliChannel {
+    +parseRequest(input : String) : Command
+    +sendCommand(command : Command) : void
+  }
+
+  class ApiChannel {
+    +parseRequest(input : String) : Command
+    +establishConnection() : void
+    +respond(status : ExecutionStatus) : void
+    +sendCommand(command : Command) : void
+  }
+
+  enum ExecutionStatus {
+    SUCCESS
+    STOPPED
+    INTERRUPTED
+    FAILED
+    WAITING_FOR_INPUT
+  }
+
+  abstract class Command {
+    -data : String
+  }
+
+  class PreloadCommand
+  class LoadAndRunCommand
+  class RunCommand
+  class StoreCommand
+  class ResetCommand
+
+  class CommandDispatcher {
+    -channel : ICommunicationChannel
+    -localDB : DatabaseFacade
+    +CommandDispatcher(channel : ICommunicationChannel, localDB : DatabaseFacade)
+    +dispatch(command : Command) : void
+    +awaitSubmoduleStatus(status : SubmoduleStatus) : void
+  }
+
+  enum SubmoduleStatus {
+    SUBMODULE_FINISHED
+    SUBMODULE_FAILED
+    SUBMODULE_INTERRUPTED
+    SUBMODULE_WAITING_FOR_RESOURCES
+  }
+
+  ICommunicationChannel <|.. CliChannel
+  ICommunicationChannel <|.. ApiChannel
+
+  Command <|-- PreloadCommand
+  Command <|-- LoadAndRunCommand
+  Command <|-- RunCommand
+  Command <|-- StoreCommand
+  Command <|-- ResetCommand
+
+  ICommunicationChannel ..> Command
+  ApiChannel ..> ExecutionStatus
+  CommandDispatcher ..> SubmoduleStatus
+
+  CliChannel --> CommandDispatcher
+  ApiChannel --> CommandDispatcher
+
+  CommandDispatcher --> DatabaseFacade
+}
+
+GUIFacade --> CommandDispatcher
 GUIFacade --> DatabaseFacade
 GUIFacade ..> QueryResult
+
+LocalSimulator --> DatabaseFacade
+
+CommandDispatcher ..> WindowQueryRequest
+
+ScenarioControl --> DatabaseFacade
+
+ConfigComparator --> DatabaseFacade
 
 @enduml
