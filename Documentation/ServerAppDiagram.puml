@@ -1,382 +1,382 @@
-@startuml
+    @startuml
 
-skinparam linetype ortho
-skinparam shadowing false
-skinparam roundcorner 10
-left to right direction
-title Server Application
+    skinparam linetype ortho
+    skinparam shadowing false
+    skinparam roundcorner 10
+    left to right direction
+    title Server Application
 
-package "Data Access Layer (DAL)" {
+    package "Data Access Layer (DAL)" {
 
- class DatabaseFacade {
-    -repository : IRepository
-    +DatabaseFacade(repository : IRepository)
-    +submit(request : QueryRequest) : QueryResult
-  }
+     class DatabaseFacade {
+        -repository : IRepository
+        +DatabaseFacade(repository : IRepository)
+        +submit(request : QueryRequest) : QueryResult
+      }
 
-  interface IRepository {
-    +submit(request : QueryRequest) : QueryResult
-  }
+      interface IRepository {
+        +submit(request : QueryRequest) : QueryResult
+      }
 
-  class SQLiteRepository {
-    -executor : IQueryExecutor
-    +SQLiteRepository(executor : IQueryExecutor)
-    +submit(request : QueryRequest) : QueryResult
-  }
+      class SQLiteRepository {
+        -executor : IQueryExecutor
+        +SQLiteRepository(executor : IQueryExecutor)
+        +submit(request : QueryRequest) : QueryResult
+      }
 
-  interface IQueryExecutor {
-    +execute(request : QueryRequest) : QueryResult
-  }
+      interface IQueryExecutor {
+        +execute(request : QueryRequest) : QueryResult
+      }
 
-  class DatabaseExecutor {
-    -connection : IConnection
-    +DatabaseExecutor(connection : IConnection)
-    +execute(request : QueryRequest) : QueryResult
-  }
+      class DatabaseExecutor {
+        -connection : IConnection
+        +DatabaseExecutor(connection : IConnection)
+        +execute(request : QueryRequest) : QueryResult
+      }
 
-  interface IConnection {
-    +open() : void
-    +close() : void
-    +execute(sql : String, params : List<Object>) : QueryResult
-  }
+      interface IConnection {
+        +open() : void
+        +close() : void
+        +execute(sql : String, params : List<Object>) : QueryResult
+      }
 
-  class SQLiteConnection {
-    -connectionString : String
-    +SQLiteConnection(connectionString : String)
-    +open() : void
-    +close() : void
-    +execute(sql : String, params : List<Object>) : QueryResult
-  }
+      class SQLiteConnection {
+        -connectionString : String
+        +SQLiteConnection(connectionString : String)
+        +open() : void
+        +close() : void
+        +execute(sql : String, params : List<Object>) : QueryResult
+      }
 
-  class QueryResult {
-    -rows : List<Map<String, Object>>
-    -affectedRows : int
-    -success : Boolean
-    -errorMessage : String
-  }
+      class QueryResult {
+        -rows : List<Map<String, Object>>
+        -affectedRows : int
+        -success : Boolean
+        -errorMessage : String
+      }
 
-  class QueryRequest {
-    -id : UUID
-    -sql : String
-    -params : List<Object>
-  }
+      class QueryRequest {
+        -id : UUID
+        -sql : String
+        -params : List<Object>
+      }
 
-  IRepository <|.. SQLiteRepository
-  IQueryExecutor <|.. DatabaseExecutor
-  IConnection <|.. SQLiteConnection
+      IRepository <|.. SQLiteRepository
+      IQueryExecutor <|.. DatabaseExecutor
+      IConnection <|.. SQLiteConnection
 
-  DatabaseFacade --> IRepository
-  DatabaseFacade ..> QueryRequest
-  DatabaseFacade ..> QueryResult
+      DatabaseFacade --> IRepository
+      DatabaseFacade ..> QueryRequest
+      DatabaseFacade ..> QueryResult
 
-  SQLiteRepository --> IQueryExecutor
-  SQLiteRepository ..> QueryRequest
-  SQLiteRepository ..> QueryResult
+      SQLiteRepository --> IQueryExecutor
+      SQLiteRepository ..> QueryRequest
+      SQLiteRepository ..> QueryResult
 
-  DatabaseExecutor --> IConnection
-  DatabaseExecutor ..> QueryRequest
-  DatabaseExecutor ..> QueryResult
-}
-
-package "CommonUtils" {
-
-  class Nod {
-    -id : Int
-    -fanioane : Set<String>
-    -latitudine : Double
-    -longitudine : Double
-    +Nod(id : Int)
-    +getFanion(cheie : String) : Boolean
-    +setFanion(cheie : String, valoare : Boolean) : void
-  }
-
-  class Muchie {
-    -nodSursa : Nod
-    -nodDestinatie : Nod
-    -distanta : Double
-    -densitate : Double
-    -vitezaMedie : Double
-    -factorCongestie : Double
-    -pondere : Double
-    +Muchie(nodSursa : Nod, nodDestinatie : Nod, distanta : Double)
-    +calculeazaPondere() : Double
-  }
-
-  class Graf {
-    -noduri : List<Nod>
-    -muchii : List<Muchie>
-    +Graf()
-    +adaugaNod(nod : Nod) : void
-    +adaugaMuchie(muchie : Muchie) : void
-    +getVecini(nod : Nod) : List<Nod>
-    +getSubgraf(noduriInteres : List<Nod>) : Graf
-  }
-
-  class Scenariu {
-    -id : UUID
-    -nume : String
-    -graf : Graf
-    -intervalOrar : String
-    -conditiiMediu : Map<String, Object>
-    -dataCreare : DateTime
-    +Scenariu(nume : String, graf : Graf)
-    +getGraf() : Graf
-  }
-
-  Graf "1" o-- "*" Nod : contine
-  Graf "1" o-- "*" Muchie : contine
-  Muchie --> "2" Nod : leaga
-  Scenariu --> Graf
-  Nod --> ConfiguratieSemaforizare
-}
-
-package "Task Manager (TM)" {
-
-  ' ---- Public facade: orchestrates split -> simulate -> aggregate ----
-  class TaskManagerFacade {
-    -splitter : TaskSplitter
-    -microSimulator : IMicroSimulator
-    -macroSimulator : IMacroSimulator
-    -aggregator : ResultAggregator
-    -parametriCalibrare : ModelParametri
-    +TaskManagerFacade(splitter : TaskSplitter, microSimulator : IMicroSimulator, macroSimulator : IMacroSimulator, aggregator : ResultAggregator)
-    +submit(task : Task) : SimulationResult
-    +calibreaza(task : Task, prag : Double) : ModelParametri
-  }
-
-  class Task {
-    -id : UUID
-    -domain : Graf
-    -subdomain : Graf
-    -scenariu : Scenariu
-    -parametri : ModelParametri
-  }
-
-  class TaskSplitter {
-    +TaskSplitter()
-    +split(task : Task) : SplitTask
-  }
-
-  class SplitTask {
-    -microPart : Task
-    -macroPart : Task
-  }
-
-  interface IMicroSimulator {
-    +simulate(task : Task) : PartialResult
-  }
-
-  interface IMacroSimulator {
-    +simulate(task : Task) : PartialResult
-  }
-
-  class PartialResult {
-    -taskId : UUID
-    -data : Map<String, Object>
-  }
-
-  class ResultAggregator {
-    +ResultAggregator()
-    +combine(microResult : PartialResult, macroResult : PartialResult) : SimulationResult
-  }
-
-  class SimulationResult {
-    -taskId : UUID
-    -data : Map<String, Object>
-    -success : Boolean
-  }
-
-  class ModelParametri {
-    -valori : Map<String, Double>
-    -eroareRelativa : Double
-    +ModelParametri()
-    +ajusteaza(strategie : String) : void
-    +esteValid(prag : Double) : Boolean
-  }
-
-  class Agent {
-    -id : UUID
-    -pozitie : Double
-    -viteza : Double
-    -nodCurent : Nod
-    -ruta : List<Nod>
-    +Agent(id : UUID, nodCurent : Nod)
-    +actualizeazaPozitie(deltaT : Double) : void
-    +aAjunsLaDestinatie() : Boolean
-  }
-
-  class Cohorta {
-    -id : UUID
-    -numarVehicule : Int
-    -densitate : Double
-    -vitezaMedie : Double
-    -muchieAsociata : Muchie
-    +Cohorta(numarVehicule : Int, densitate : Double, muchieAsociata : Muchie)
-    +transformaInAgenti() : List<Agent>
-    +agregaDinAgenti(agenti : List<Agent>) : void
-  }
-
-  package "Micro Simulator (mSim)" {
-    class MicroSimulator {
-      +simulate(task : Task) : PartialResult
+      DatabaseExecutor --> IConnection
+      DatabaseExecutor ..> QueryRequest
+      DatabaseExecutor ..> QueryResult
     }
-  }
 
-  package "Macro Simulator (MSim)" {
-    class MacroSimulator {
-      +simulate(task : Task) : PartialResult
+    package "CommonUtils" {
+
+      class Nod {
+        -id : Int
+        -fanioane : Set<String>
+        -latitudine : Double
+        -longitudine : Double
+        +Nod(id : Int)
+        +getFanion(cheie : String) : Boolean
+        +setFanion(cheie : String, valoare : Boolean) : void
+      }
+
+      class Muchie {
+        -nodSursa : Nod
+        -nodDestinatie : Nod
+        -distanta : Double
+        -densitate : Double
+        -vitezaMedie : Double
+        -factorCongestie : Double
+        -pondere : Double
+        +Muchie(nodSursa : Nod, nodDestinatie : Nod, distanta : Double)
+        +calculeazaPondere() : Double
+      }
+
+      class Graf {
+        -noduri : List<Nod>
+        -muchii : List<Muchie>
+        +Graf()
+        +adaugaNod(nod : Nod) : void
+        +adaugaMuchie(muchie : Muchie) : void
+        +getVecini(nod : Nod) : List<Nod>
+        +getSubgraf(noduriInteres : List<Nod>) : Graf
+      }
+
+      class Scenariu {
+        -id : UUID
+        -nume : String
+        -graf : Graf
+        -intervalOrar : String
+        -conditiiMediu : Map<String, Object>
+        -dataCreare : DateTime
+        +Scenariu(nume : String, graf : Graf)
+        +getGraf() : Graf
+      }
+
+      Graf "1" o-- "*" Nod : contine
+      Graf "1" o-- "*" Muchie : contine
+      Muchie --> "2" Nod : leaga
+      Scenariu --> Graf
+      Nod --> ConfiguratieSemaforizare
     }
-  }
 
-  IMicroSimulator <|.. MicroSimulator
-  IMacroSimulator <|.. MacroSimulator
+    package "Task Manager (TM)" {
 
-  TaskManagerFacade --> TaskSplitter
-  TaskManagerFacade --> IMicroSimulator
-  TaskManagerFacade --> IMacroSimulator
-  TaskManagerFacade --> ResultAggregator
-  TaskManagerFacade --> ModelParametri
-  TaskManagerFacade ..> Task
-  TaskManagerFacade ..> SimulationResult
-  TaskManagerFacade ..> Agent
-  TaskManagerFacade ..> Cohorta
+      ' ---- Public facade: orchestrates split -> simulate -> aggregate ----
+      class TaskManagerFacade {
+        -splitter : TaskSplitter
+        -microSimulator : IMicroSimulator
+        -macroSimulator : IMacroSimulator
+        -aggregator : ResultAggregator
+        -parametriCalibrare : ModelParametri
+        +TaskManagerFacade(splitter : TaskSplitter, microSimulator : IMicroSimulator, macroSimulator : IMacroSimulator, aggregator : ResultAggregator)
+        +submit(task : Task) : SimulationResult
+        +calibreaza(task : Task, prag : Double) : ModelParametri
+      }
 
-  TaskSplitter ..> Task
-  TaskSplitter ..> SplitTask
-  SplitTask o-- "2" Task
+      class Task {
+        -id : UUID
+        -domain : Graf
+        -subdomain : Graf
+        -scenariu : Scenariu
+        -parametri : ModelParametri
+      }
 
-  IMicroSimulator ..> PartialResult
-  IMicroSimulator ..> Agent
-  IMacroSimulator ..> PartialResult
-  IMacroSimulator ..> Cohorta
+      class TaskSplitter {
+        +TaskSplitter()
+        +split(task : Task) : SplitTask
+      }
 
-  ResultAggregator ..> PartialResult
-  ResultAggregator ..> SimulationResult
+      class SplitTask {
+        -microPart : Task
+        -macroPart : Task
+      }
 
-  Agent --> Nod
-  Cohorta --> Muchie
-  Cohorta ..> Agent : transformaInAgenti()
-  Agent ..> Cohorta : agregaDinAgenti()
-}
+      interface IMicroSimulator {
+        +simulate(task : Task) : PartialResult
+      }
 
-Task ..> Graf
-Task ..> Scenariu
-Task ..> ModelParametri
+      interface IMacroSimulator {
+        +simulate(task : Task) : PartialResult
+      }
 
-package "Motor - Optimizare" {
+      class PartialResult {
+        -taskId : UUID
+        -data : Map<String, Object>
+      }
 
-  enum RegimSemaforizare {
-    STATIC
-    ADAPTIV
-  }
+      class ResultAggregator {
+        +ResultAggregator()
+        +combine(microResult : PartialResult, macroResult : PartialResult) : SimulationResult
+      }
 
-  class ConfiguratieSemaforizare {
-    -id : UUID
-    -timpiFaze : Map<Nod, List<Double>>
-    -regim : RegimSemaforizare
-    +ConfiguratieSemaforizare(regim : RegimSemaforizare)
-    +getTimpi(nod : Nod) : List<Double>
-    +setTimpi(nod : Nod, timpi : List<Double>) : void
-    +costTotal(alpha : Double, beta : Double, gamma : Double, delta : Double) : Double
-  }
+      class SimulationResult {
+        -taskId : UUID
+        -data : Map<String, Object>
+        -success : Boolean
+      }
 
-  interface IAlgoritmOptimizare {
-    +optimizeaza(configuratieInitiala : ConfiguratieSemaforizare, modelValidat : SimulationResult) : ConfiguratieSemaforizare
-  }
+      class ModelParametri {
+        -valori : Map<String, Double>
+        -eroareRelativa : Double
+        +ModelParametri()
+        +ajusteaza(strategie : String) : void
+        +esteValid(prag : Double) : Boolean
+      }
 
-  class AlgoritmiOptimizare {
-    -populatie : List<ConfiguratieSemaforizare>
-    -numarGeneratii : Int
-    -celMaiBunCost : Double
-    +AlgoritmiOptimizare(numarGeneratii : Int)
-    +optimizeaza(configuratieInitiala : ConfiguratieSemaforizare, modelValidat : SimulationResult) : ConfiguratieSemaforizare
-    +actualizeazaPopulatie(configuratie : ConfiguratieSemaforizare, cost : Double) : void
-  }
+      class Agent {
+        -id : UUID
+        -pozitie : Double
+        -viteza : Double
+        -nodCurent : Nod
+        -ruta : List<Nod>
+        +Agent(id : UUID, nodCurent : Nod)
+        +actualizeazaPozitie(deltaT : Double) : void
+        +aAjunsLaDestinatie() : Boolean
+      }
 
-  class SincronizareSemafoare {
-    +SincronizareSemafoare()
-    +propuneConfiguratie(configuratieCurenta : ConfiguratieSemaforizare) : ConfiguratieSemaforizare
-    +evalueazaCost(rezultat : SimulationResult) : Double
-  }
+      class Cohorta {
+        -id : UUID
+        -numarVehicule : Int
+        -densitate : Double
+        -vitezaMedie : Double
+        -muchieAsociata : Muchie
+        +Cohorta(numarVehicule : Int, densitate : Double, muchieAsociata : Muchie)
+        +transformaInAgenti() : List<Agent>
+        +agregaDinAgenti(agenti : List<Agent>) : void
+      }
 
-  IAlgoritmOptimizare <|.. AlgoritmiOptimizare
-  AlgoritmiOptimizare --> SincronizareSemafoare
-  SincronizareSemafoare --> TaskManagerFacade
-  SincronizareSemafoare ..> ConfiguratieSemaforizare
-  AlgoritmiOptimizare ..> ConfiguratieSemaforizare
-  AlgoritmiOptimizare ..> SimulationResult
-  ConfiguratieSemaforizare --> RegimSemaforizare
-  ConfiguratieSemaforizare "1" o-- "*" Nod : configureaza
-}
+      package "Micro Simulator (mSim)" {
+        class MicroSimulator {
+          +simulate(task : Task) : PartialResult
+        }
+      }
 
-package "Communication (COM)" {
+      package "Macro Simulator (MSim)" {
+        class MacroSimulator {
+          +simulate(task : Task) : PartialResult
+        }
+      }
 
-  interface ICommunicationChannel {
-    +parseRequest(input : String) : Command
-  }
+      IMicroSimulator <|.. MicroSimulator
+      IMacroSimulator <|.. MacroSimulator
 
-  class CliChannel {
-    +parseRequest(input : String) : Command
-  }
+      TaskManagerFacade --> TaskSplitter
+      TaskManagerFacade --> IMicroSimulator
+      TaskManagerFacade --> IMacroSimulator
+      TaskManagerFacade --> ResultAggregator
+      TaskManagerFacade --> ModelParametri
+      TaskManagerFacade ..> Task
+      TaskManagerFacade ..> SimulationResult
+      TaskManagerFacade ..> Agent
+      TaskManagerFacade ..> Cohorta
 
-  class ApiChannel {
-    +parseRequest(input : String) : Command
-    +establishConnection() : void
-    +respond(status : ExecutionStatus) : void
-  }
+      TaskSplitter ..> Task
+      TaskSplitter ..> SplitTask
+      SplitTask o-- "2" Task
 
-  enum ExecutionStatus {
-    SUCCESS
-    STOPPED
-    INTERRUPTED
-    FAILED
-    WAITING_FOR_INPUT
-  }
+      IMicroSimulator ..> PartialResult
+      IMicroSimulator ..> Agent
+      IMacroSimulator ..> PartialResult
+      IMacroSimulator ..> Cohorta
 
-  abstract class Command {
-    -data : String
-  }
+      ResultAggregator ..> PartialResult
+      ResultAggregator ..> SimulationResult
 
-  class PreloadCommand
-  class LoadAndRunCommand
-  class RunCommand
-  class StoreCommand
-  class ResetCommand
+      Agent --> Nod
+      Cohorta --> Muchie
+      Cohorta ..> Agent : transformaInAgenti()
+      Agent ..> Cohorta : agregaDinAgenti()
+    }
 
-  class CommandDispatcher {
-    +dispatch(command : Command) : void
-    +awaitSubmoduleStatus(status : SubmoduleStatus) : void
-  }
+    Task ..> Graf
+    Task ..> Scenariu
+    Task ..> ModelParametri
 
-  enum SubmoduleStatus {
-    SUBMODULE_FINISHED
-    SUBMODULE_FAILED
-    SUBMODULE_INTERRUPTED
-    SUBMODULE_WAITING_FOR_RESOURCES
-  }
+    package "Motor - Optimizare" {
 
-  ICommunicationChannel <|.. CliChannel
-  ICommunicationChannel <|.. ApiChannel
+      enum RegimSemaforizare {
+        STATIC
+        ADAPTIV
+      }
 
-  Command <|-- PreloadCommand
-  Command <|-- LoadAndRunCommand
-  Command <|-- RunCommand
-  Command <|-- StoreCommand
-  Command <|-- ResetCommand
+      class ConfiguratieSemaforizare {
+        -id : UUID
+        -timpiFaze : Map<Nod, List<Double>>
+        -regim : RegimSemaforizare
+        +ConfiguratieSemaforizare(regim : RegimSemaforizare)
+        +getTimpi(nod : Nod) : List<Double>
+        +setTimpi(nod : Nod, timpi : List<Double>) : void
+        +costTotal(alpha : Double, beta : Double, gamma : Double, delta : Double) : Double
+      }
 
-  ICommunicationChannel ..> Command
-  ApiChannel ..> ExecutionStatus
-  CommandDispatcher ..> SubmoduleStatus
+      interface IAlgoritmOptimizare {
+        +optimizeaza(configuratieInitiala : ConfiguratieSemaforizare, modelValidat : SimulationResult) : ConfiguratieSemaforizare
+      }
 
-  CliChannel --> CommandDispatcher
-  ApiChannel --> CommandDispatcher
+      class AlgoritmiOptimizare {
+        -populatie : List<ConfiguratieSemaforizare>
+        -numarGeneratii : Int
+        -celMaiBunCost : Double
+        +AlgoritmiOptimizare(numarGeneratii : Int)
+        +optimizeaza(configuratieInitiala : ConfiguratieSemaforizare, modelValidat : SimulationResult) : ConfiguratieSemaforizare
+        +actualizeazaPopulatie(configuratie : ConfiguratieSemaforizare, cost : Double) : void
+      }
 
-  CommandDispatcher --> TaskManagerFacade
-  CommandDispatcher --> DatabaseFacade
-  CommandDispatcher --> AlgoritmiOptimizare
-}
+      class SincronizareSemafoare {
+        +SincronizareSemafoare()
+        +propuneConfiguratie(configuratieCurenta : ConfiguratieSemaforizare) : ConfiguratieSemaforizare
+        +evalueazaCost(rezultat : SimulationResult) : Double
+      }
 
-DatabaseFacade ..> Scenariu : persists
-DatabaseFacade ..> ConfiguratieSemaforizare : persists
+      IAlgoritmOptimizare <|.. AlgoritmiOptimizare
+      AlgoritmiOptimizare --> SincronizareSemafoare
+      SincronizareSemafoare --> TaskManagerFacade
+      SincronizareSemafoare ..> ConfiguratieSemaforizare
+      AlgoritmiOptimizare ..> ConfiguratieSemaforizare
+      AlgoritmiOptimizare ..> SimulationResult
+      ConfiguratieSemaforizare --> RegimSemaforizare
+      ConfiguratieSemaforizare "1" o-- "*" Nod : configureaza
+    }
 
-@enduml
+    package "Communication (COM)" {
+
+      interface ICommunicationChannel {
+        +parseRequest(input : String) : Command
+      }
+
+      class CliChannel {
+        +parseRequest(input : String) : Command
+      }
+
+      class ApiChannel {
+        +parseRequest(input : String) : Command
+        +establishConnection() : void
+        +respond(status : ExecutionStatus) : void
+      }
+
+      enum ExecutionStatus {
+        SUCCESS
+        STOPPED
+        INTERRUPTED
+        FAILED
+        WAITING_FOR_INPUT
+      }
+
+      abstract class Command {
+        -data : String
+      }
+
+      class PreloadCommand
+      class LoadAndRunCommand
+      class RunCommand
+      class StoreCommand
+      class ResetCommand
+
+      class CommandDispatcher {
+        +dispatch(command : Command) : void
+        +awaitSubmoduleStatus(status : SubmoduleStatus) : void
+      }
+
+      enum SubmoduleStatus {
+        SUBMODULE_FINISHED
+        SUBMODULE_FAILED
+        SUBMODULE_INTERRUPTED
+        SUBMODULE_WAITING_FOR_RESOURCES
+      }
+
+      ICommunicationChannel <|.. CliChannel
+      ICommunicationChannel <|.. ApiChannel
+
+      Command <|-- PreloadCommand
+      Command <|-- LoadAndRunCommand
+      Command <|-- RunCommand
+      Command <|-- StoreCommand
+      Command <|-- ResetCommand
+
+      ICommunicationChannel ..> Command
+      ApiChannel ..> ExecutionStatus
+      CommandDispatcher ..> SubmoduleStatus
+
+      CliChannel --> CommandDispatcher
+      ApiChannel --> CommandDispatcher
+
+      CommandDispatcher --> TaskManagerFacade
+      CommandDispatcher --> DatabaseFacade
+      CommandDispatcher --> AlgoritmiOptimizare
+    }
+
+    DatabaseFacade ..> Scenariu : persists
+    DatabaseFacade ..> ConfiguratieSemaforizare : persists
+
+    @enduml
