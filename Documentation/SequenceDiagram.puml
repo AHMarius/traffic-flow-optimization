@@ -1,0 +1,188 @@
+@startuml
+skinparam sequenceMessageAlign center
+skinparam maxMessageSize 160
+skinparam BoxPadding 10
+actor "Cercetator" as User
+box "Interfata de Vizualizare si Control"
+participant "Frontend UI" as FE
+end box
+box "Communication (COM)"
+participant "ApiChannel /\nCliChannel" as Channel
+participant "CommandDispatcher" as Dispatcher
+end box
+
+box "Data Access Layer (DAL)"
+participant "DatabaseFacade" as DBFacade
+participant "SQLiteRepository" as Repo
+participant "DatabaseExecutor" as Executor
+participant "SQLiteConnection" as Conn
+end box
+
+box "Task Manager (TM)"
+participant "TaskManagerFacade" as TMFacade
+participant "TaskSplitter" as Splitter
+participant "MicroSimulator" as Micro
+participant "MacroSimulator" as Macro
+participant "ResultAggregator" as Aggregator
+end box
+
+box "Motor - Optimizare"
+participant "Algoritmi Optimizare)" as Opt
+participant "Sincronizare Semafoare" as Sync
+end box
+
+== Configurare experiment ==
+
+User -> FE : selecteaza regiune, scenariu,\nparametri initiali
+FE -> Channel : LoadAndRunCommand(scenariu)
+activate Channel
+Channel -> Dispatcher : dispatch(command)
+activate Dispatcher
+
+Dispatcher -> DBFacade : submit(QueryRequest: reteaua + date istorice reale)
+activate DBFacade
+DBFacade -> Repo : submit(request)
+activate Repo
+Repo -> Executor : execute(request)
+activate Executor
+Executor -> Conn : execute(sql, params)
+activate Conn
+Conn --> Executor : QueryResult
+deactivate Conn
+Executor --> Repo : QueryResult
+deactivate Executor
+Repo --> DBFacade : QueryResult
+deactivate Repo
+DBFacade --> Dispatcher : QueryResult (Task + date reale R)
+deactivate DBFacade
+
+== FAZA I: Simulare si calibrare model initial S0 ==
+
+Dispatcher -> TMFacade : submit(task)
+activate TMFacade
+
+group Bucla de calibrare [pana la E(P) < 0.05 sau numar maxim de iteratii]
+
+    TMFacade -> Splitter : split(task, parametri P)
+    activate Splitter
+    Splitter --> TMFacade : SplitTask(microPart, macroPart)
+    deactivate Splitter
+
+    par Simulare microscopica
+        TMFacade -> Micro : simulate(microPart)
+        activate Micro
+    else Simulare macroscopica
+        TMFacade -> Macro : simulate(macroPart)
+        activate Macro
+    end
+
+    loop pentru fiecare interval de actualizare
+        Macro -> Micro : transfera cohorte (grupuri de vehicule)
+        Micro -> Macro : transfera agenti agregati\n(pozitie, densitate, viteza medie)
+    end
+
+    Micro --> TMFacade : PartialResult (micro)
+    deactivate Micro
+    Macro --> TMFacade : PartialResult (macro)
+    deactivate Macro
+
+    TMFacade -> Aggregator : combine(microResult, macroResult)
+    activate Aggregator
+    Aggregator --> TMFacade : SimulationResult S(P)
+    deactivate Aggregator
+
+    TMFacade -> TMFacade : E(P) = eroare relativa medie(R, S(P))
+
+    alt E(P) >= 0.05
+        TMFacade -> TMFacade : ajusteaza P\n(cautare parametri: genetic / metaeuristic)
+    else E(P) < 0.05
+        TMFacade -> TMFacade : model S0 validat (5-credibil)
+    end
+
+end
+
+FE <-- Dispatcher : progres calibrare (E(P), iteratie curenta)
+TMFacade --> Dispatcher : SimulationResult (S0, validat)
+
+Dispatcher -> DBFacade : submit(QueryRequest: store model S0)
+activate DBFacade
+DBFacade -> Repo : submit(request)
+Repo -> Executor : execute(request)
+Executor -> Conn : execute(sql, params)
+Conn --> Executor : QueryResult
+Executor --> Repo : QueryResult
+Repo --> DBFacade : QueryResult
+DBFacade --> Dispatcher : QueryResult (confirmare)
+deactivate DBFacade
+
+== FAZA II: Optimizare semaforizare ==
+
+User -> FE : porneste optimizarea
+FE -> Channel : RunCommand(optimizare, S0)
+Channel -> Dispatcher : dispatch(command)
+
+Dispatcher -> Opt : optimizeaza(T, S0)
+activate Opt
+
+loop pana la convergenta / numar maxim de generatii
+    Opt -> Sync : propune configuratie T'\n(timpi semaforizare)
+    activate Sync
+    Sync -> TMFacade : submit(task cu T')
+    TMFacade -> Splitter : split(task)
+    Splitter --> TMFacade : SplitTask
+    par
+        TMFacade -> Micro : simulate(microPart)
+        activate Micro
+    else
+        TMFacade -> Macro : simulate(macroPart)
+        activate Macro
+    end
+    Micro --> TMFacade : PartialResult
+    deactivate Micro
+    Macro --> TMFacade : PartialResult
+    deactivate Macro
+    TMFacade -> Aggregator : combine(...)
+    Aggregator --> TMFacade : SimulationResult S(T')
+    TMFacade --> Sync : SimulationResult S(T')
+    Sync --> Opt : cost C(T') = alpha*D + beta*W + gamma*S + delta*G
+    deactivate Sync
+    Opt -> Opt : actualizeaza feromoni / populatie\n(pastreaza cea mai buna configuratie T*)
+end
+
+Opt --> Dispatcher : SimulationResult S* (model optimizat, T*)
+deactivate Opt
+
+== Validarea optimizarii ==
+
+Dispatcher -> Dispatcher : calculeaza C(S*, S0)\nverifica S* < S0 si C(S*,S0) <= -delta
+
+alt optimizare semnificativa
+    Dispatcher -> DBFacade : submit(QueryRequest: store S*, T*, comparatie)
+else optimizare nesemnificativa
+    Dispatcher -> Dispatcher : marcheaza experiment ca neconcludent
+    Dispatcher -> DBFacade : submit(QueryRequest: store rezultat partial)
+end
+
+activate DBFacade
+DBFacade -> Repo : submit(request)
+Repo -> Executor : execute(request)
+Executor -> Conn : execute(sql, params)
+Conn --> Executor : QueryResult
+Executor --> Repo : QueryResult
+Repo --> DBFacade : QueryResult
+DBFacade --> Dispatcher : QueryResult (confirmare salvare)
+deactivate DBFacade
+
+== Raspuns final ==
+
+Dispatcher -> Dispatcher : awaitSubmoduleStatus(SUBMODULE_FINISHED)
+Dispatcher -> Channel : status(ExecutionStatus)
+deactivate Dispatcher
+
+Channel -> FE : rezultat experiment\n(S0, S*, C(S*,S0), grafice comparative)
+deactivate Channel
+
+FE -> FE : Vizualizare Retea/Trafic +\nCompara Configuratii
+FE --> User : afiseaza rezultatele\n(timp mediu deplasare, opriri, congestie)
+
+@enduml

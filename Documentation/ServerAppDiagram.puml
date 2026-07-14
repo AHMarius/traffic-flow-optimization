@@ -3,7 +3,7 @@
 skinparam linetype ortho
 skinparam shadowing false
 skinparam roundcorner 10
-top to bottom direction
+left to right direction
 title Server Application
 
 package "Data Access Layer (DAL)" {
@@ -79,10 +79,55 @@ package "Data Access Layer (DAL)" {
 }
 
 package "CommonUtils" {
-  class Node {
+
+  class Nod {
+    -id : Int
+    -fanioane : Set<String>
+    -latitudine : Double
+    -longitudine : Double
+    +Nod(id : Int)
+    +getFanion(cheie : String) : Boolean
+    +setFanion(cheie : String, valoare : Boolean) : void
   }
-  class Graph {
+
+  class Muchie {
+    -nodSursa : Nod
+    -nodDestinatie : Nod
+    -distanta : Double
+    -densitate : Double
+    -vitezaMedie : Double
+    -factorCongestie : Double
+    -pondere : Double
+    +Muchie(nodSursa : Nod, nodDestinatie : Nod, distanta : Double)
+    +calculeazaPondere() : Double
   }
+
+  class Graf {
+    -noduri : List<Nod>
+    -muchii : List<Muchie>
+    +Graf()
+    +adaugaNod(nod : Nod) : void
+    +adaugaMuchie(muchie : Muchie) : void
+    +getVecini(nod : Nod) : List<Nod>
+    +getSubgraf(noduriInteres : List<Nod>) : Graf
+  }
+
+  class Scenariu {
+    -id : UUID
+    -nume : String
+    -graf : Graf
+    -intervalOrar : String
+    -conditiiMediu : Map<String, Object>
+    -dataCreare : DateTime
+    +Scenariu(nume : String, graf : Graf)
+    +getGraf() : Graf
+  }
+
+  Graf "1" o-- "*" Nod : contine
+  Graf "1" o-- "*" Muchie : contine
+  Muchie --> "2" Nod : leaga
+  Scenariu --> Graf
+  Nod --> ConfiguratieSemaforizare
 }
 
 package "Task Manager (TM)" {
@@ -93,14 +138,18 @@ package "Task Manager (TM)" {
     -microSimulator : IMicroSimulator
     -macroSimulator : IMacroSimulator
     -aggregator : ResultAggregator
+    -parametriCalibrare : ModelParametri
     +TaskManagerFacade(splitter : TaskSplitter, microSimulator : IMicroSimulator, macroSimulator : IMacroSimulator, aggregator : ResultAggregator)
     +submit(task : Task) : SimulationResult
+    +calibreaza(task : Task, prag : Double) : ModelParametri
   }
 
   class Task {
     -id : UUID
-    -domain : Graph
-    -subdomain : Graph
+    -domain : Graf
+    -subdomain : Graf
+    -scenariu : Scenariu
+    -parametri : ModelParametri
   }
 
   class TaskSplitter {
@@ -137,6 +186,36 @@ package "Task Manager (TM)" {
     -success : Boolean
   }
 
+  class ModelParametri {
+    -valori : Map<String, Double>
+    -eroareRelativa : Double
+    +ModelParametri()
+    +ajusteaza(strategie : String) : void
+    +esteValid(prag : Double) : Boolean
+  }
+
+  class Agent {
+    -id : UUID
+    -pozitie : Double
+    -viteza : Double
+    -nodCurent : Nod
+    -ruta : List<Nod>
+    +Agent(id : UUID, nodCurent : Nod)
+    +actualizeazaPozitie(deltaT : Double) : void
+    +aAjunsLaDestinatie() : Boolean
+  }
+
+  class Cohorta {
+    -id : UUID
+    -numarVehicule : Int
+    -densitate : Double
+    -vitezaMedie : Double
+    -muchieAsociata : Muchie
+    +Cohorta(numarVehicule : Int, densitate : Double, muchieAsociata : Muchie)
+    +transformaInAgenti() : List<Agent>
+    +agregaDinAgenti(agenti : List<Agent>) : void
+  }
+
   package "Micro Simulator (mSim)" {
     class MicroSimulator {
       +simulate(task : Task) : PartialResult
@@ -156,21 +235,79 @@ package "Task Manager (TM)" {
   TaskManagerFacade --> IMicroSimulator
   TaskManagerFacade --> IMacroSimulator
   TaskManagerFacade --> ResultAggregator
+  TaskManagerFacade --> ModelParametri
   TaskManagerFacade ..> Task
   TaskManagerFacade ..> SimulationResult
+  TaskManagerFacade ..> Agent
+  TaskManagerFacade ..> Cohorta
 
   TaskSplitter ..> Task
   TaskSplitter ..> SplitTask
   SplitTask o-- "2" Task
 
   IMicroSimulator ..> PartialResult
+  IMicroSimulator ..> Agent
   IMacroSimulator ..> PartialResult
+  IMacroSimulator ..> Cohorta
 
   ResultAggregator ..> PartialResult
   ResultAggregator ..> SimulationResult
+
+  Agent --> Nod
+  Cohorta --> Muchie
+  Cohorta ..> Agent : transformaInAgenti()
+  Agent ..> Cohorta : agregaDinAgenti()
 }
 
-Task ..> Graph
+Task ..> Graf
+Task ..> Scenariu
+Task ..> ModelParametri
+
+package "Motor - Optimizare" {
+
+  enum RegimSemaforizare {
+    STATIC
+    ADAPTIV
+  }
+
+  class ConfiguratieSemaforizare {
+    -id : UUID
+    -timpiFaze : Map<Nod, List<Double>>
+    -regim : RegimSemaforizare
+    +ConfiguratieSemaforizare(regim : RegimSemaforizare)
+    +getTimpi(nod : Nod) : List<Double>
+    +setTimpi(nod : Nod, timpi : List<Double>) : void
+    +costTotal(alpha : Double, beta : Double, gamma : Double, delta : Double) : Double
+  }
+
+  interface IAlgoritmOptimizare {
+    +optimizeaza(configuratieInitiala : ConfiguratieSemaforizare, modelValidat : SimulationResult) : ConfiguratieSemaforizare
+  }
+
+  class AlgoritmiOptimizare {
+    -populatie : List<ConfiguratieSemaforizare>
+    -numarGeneratii : Int
+    -celMaiBunCost : Double
+    +AlgoritmiOptimizare(numarGeneratii : Int)
+    +optimizeaza(configuratieInitiala : ConfiguratieSemaforizare, modelValidat : SimulationResult) : ConfiguratieSemaforizare
+    +actualizeazaPopulatie(configuratie : ConfiguratieSemaforizare, cost : Double) : void
+  }
+
+  class SincronizareSemafoare {
+    +SincronizareSemafoare()
+    +propuneConfiguratie(configuratieCurenta : ConfiguratieSemaforizare) : ConfiguratieSemaforizare
+    +evalueazaCost(rezultat : SimulationResult) : Double
+  }
+
+  IAlgoritmOptimizare <|.. AlgoritmiOptimizare
+  AlgoritmiOptimizare --> SincronizareSemafoare
+  SincronizareSemafoare --> TaskManagerFacade
+  SincronizareSemafoare ..> ConfiguratieSemaforizare
+  AlgoritmiOptimizare ..> ConfiguratieSemaforizare
+  AlgoritmiOptimizare ..> SimulationResult
+  ConfiguratieSemaforizare --> RegimSemaforizare
+  ConfiguratieSemaforizare "1" o-- "*" Nod : configureaza
+}
 
 package "Communication (COM)" {
 
@@ -236,6 +373,10 @@ package "Communication (COM)" {
 
   CommandDispatcher --> TaskManagerFacade
   CommandDispatcher --> DatabaseFacade
+  CommandDispatcher --> AlgoritmiOptimizare
 }
+
+DatabaseFacade ..> Scenariu : persists
+DatabaseFacade ..> ConfiguratieSemaforizare : persists
 
 @enduml

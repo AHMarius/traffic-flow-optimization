@@ -1,0 +1,94 @@
+@startuml
+left to right direction
+skinparam packageStyle rectangle
+
+actor "Utilizator" as Researcher
+actor "Surse de date" as DataSource
+skinparam linetype ortho
+actor "Sistem de\noptimizare" as Optimizer
+
+rectangle "Sistem de Simulare Trafic Urban" {
+
+  package "Gestionarea Retelei" {
+    usecase "Preia date rutiere\n(OpenStreetMap, surse publice)" as UC1
+    usecase "Construieste reteaua\nca digraf ponderat" as UC2
+    usecase "Selecteaza orasul / regiunea" as UC3
+    usecase "Configureaza atribute\n(lungime, benzi, viteza, semafoare)" as UC4
+  }
+
+  package "Configurare Simulare" {
+    usecase "Ajusteaza setarile simularii" as UC5
+    usecase "Selecteaza regiuni pentru\nsimulare microscopica (V*)" as UC6
+    usecase "Selecteaza regulile de\ncirculatie / interactiune" as UC7
+    usecase "Configureaza regim semaforizare\n(static / adaptiv)" as UC8
+  }
+
+  package "Executia Simularii" {
+    usecase "Porneste simularea" as UC9
+    usecase "Ruleaza model microscopic\n(agenti individuali)" as UC10
+    usecase "Ruleaza model macroscopic\n(fluxuri agregate)" as UC11
+    usecase "Sincronizeaza modelul hibrid\nmicro-macro" as UC12
+    usecase "Vizualizeaza trafic\nin timp real" as UC13
+  }
+
+  package "Calibrare si Validare" {
+    usecase "Calibreaza parametrii modelului" as UC14
+    usecase "Calculeaza eroarea relativa\nfata de date reale" as UC15
+    usecase "Recalibreaza modelul\ndaca eroarea > prag" as UC16
+    usecase "Valideaza modelul\n(k-credibilitate < 5%)" as UC17
+  }
+
+  package "Optimizare" {
+    usecase "Selecteaza optimizare automata" as UC18
+    usecase "Defineste reguli/parametri\nde optimizare manuala" as UC19
+    usecase "Ruleaza algoritmi " as UC20
+    usecase "Optimizeaza temporizarea semafoarelor" as UC21
+    usecase "Compara model initial vs. model optimizat" as UC22
+  }
+
+  package "Raportare" {
+    usecase "Exporta / afiseaza rezultate" as UC23
+    usecase "Salveaza scenariu in baza de date" as UC24
+  }
+}
+
+Researcher --> UC3
+Researcher --> UC5
+Researcher --> UC6
+Researcher --> UC7
+Researcher --> UC8
+Researcher --> UC9
+Researcher --> UC13
+Researcher --> UC18
+Researcher --> UC19
+Researcher --> UC22
+Researcher --> UC23
+
+DataSource --> UC1
+
+UC1 ..> UC2 : <<include>>
+UC2 ..> UC4 : <<include>>
+UC3 ..> UC2 : <<include>>
+
+UC9 ..> UC10 : <<include>>
+UC9 ..> UC11 : <<include>>
+UC10 ..> UC12 : <<include>>
+UC11 ..> UC12 : <<include>>
+
+UC9 ..> UC14 : <<include>>
+UC14 ..> UC15 : <<include>>
+UC15 ..> UC16 : <<extend>>
+UC16 ..> UC14 : <<include>>
+UC15 ..> UC17 : <<include>>
+
+UC18 ..> UC20 : <<include>>
+UC19 ..> UC21 : <<include>>
+UC20 ..> UC21 : <<include>>
+UC21 ..> UC22 : <<include>>
+
+Optimizer --> UC20
+
+UC9 ..> UC24 : <<include>>
+UC22 ..> UC23 : <<include>>
+
+@enduml

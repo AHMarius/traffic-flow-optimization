@@ -1,0 +1,61 @@
+@startuml
+skinparam componentStyle rectangle
+skinparam linetype ortho
+left to right direction
+
+package "Stratul de Date" as DB_Layer {
+  database "Baza de Date\n(retea rutiera, intersectii,\ntimpi semaforizare, date istorice,\ndensitati, scenarii, rezultate)" as DB
+  interface "DB API" as IDB
+  DB - IDB
+}
+
+package "Modulul de Modelare si Validare" as ModelModule {
+  [Model Microscopic] as MM
+  [Model Macroscopic] as MC
+  [Calibrare Parametri] as Calib
+  [Validare Statistica] as Valid
+  interface "Model Export API" as IModel
+  MM --> Calib
+  MC --> Calib
+  Calib --> Valid
+  Valid -- IModel
+}
+
+package "Motorul Principal de Simulare si Optimizare" as Engine {
+  [Incarcare / Gestionare Retea] as NetLoad
+  [Simulare Microscopica] as SimMicro
+  [Simulare Macroscopica] as SimMacro
+  [Coordonator Hibrid Micro-Macro] as Hybrid
+  [Algoritmi de Optimizare] as Opt
+  [Sincronizare Semafoare] as Sync
+  interface "Engine API" as IEngineAPI
+  interface "Engine CLI" as IEngineCLI
+  NetLoad --> SimMicro
+  NetLoad --> SimMacro
+  SimMicro --> Hybrid
+  SimMacro --> Hybrid
+  Hybrid --> Sync
+  Opt --> Sync
+  Hybrid -- IEngineAPI
+  Hybrid -- IEngineCLI
+}
+package "Interfata de Vizualizare si Control" as Frontend {
+  [Vizualizare Retea / Trafic] as Viz
+  [Control Scenarii] as Control
+  [Comparare Configuratii] as Compare
+  [Simulare Locala Simplificata] as LocalSim
+  interface "Frontend UI" as IFrontend
+  Viz -- IFrontend
+  Control -- IFrontend
+  Compare -- IFrontend
+}
+IDB <-down- ModelModule
+IDB <-down- Engine
+IDB <-down- Frontend
+IModel -down-> IEngineAPI
+IEngineAPI <-down- IFrontend
+IEngineCLI <.. Researcher
+Researcher --> IFrontend
+Researcher --> IEngineCLI
+
+@enduml
