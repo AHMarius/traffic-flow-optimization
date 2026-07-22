@@ -1,9 +1,9 @@
-package DAL
+package dal
 
 import java.util.UUID
 
 class QueryRequest(
     val id: UUID,
     val sql: String,
-    val params: List<Any>
+    val params: List<Any>,
 )
