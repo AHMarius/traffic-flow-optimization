@@ -8,7 +8,7 @@ title Server Application
 
 package "Data Access Layer (DAL)" {
 
- class DatabaseFacade {
+  class DatabaseFacade {
     -repository : IRepository
     +DatabaseFacade(repository : IRepository)
     +submit(request : QueryRequest) : QueryResult
@@ -61,6 +61,34 @@ package "Data Access Layer (DAL)" {
     -params : List<Object>
   }
 
+  ' ---- One row per (task, step): agent/cohort positions only. ----
+  ' ---- Map topology itself lives in Scenario/Graph, persisted once, not per row. ----
+  class MapSnapshotRow {
+    -id : UUID
+    -taskId : UUID
+    -stepIndex : Int
+    -timestamp : Double
+    -agentPositionsJson : String
+    -cohortStatesJson : String
+    -createdAt : DateTime
+  }
+
+  ' ---- Persists per-step position data via the same DB abstraction ----
+  class SnapshotRecorder {
+    -database : DatabaseFacade
+    +SnapshotRecorder(database : DatabaseFacade)
+    +onStep(stepIndex : Int, timestamp : Double, snapshot : MapSnapshot) : void
+    -toRow(taskId : UUID, stepIndex : Int, timestamp : Double, snapshot : MapSnapshot) : MapSnapshotRow
+  }
+
+  ' ---- Read path: frontend pulls rows back to replay/draw a run ----
+  class SnapshotRepository {
+    -database : DatabaseFacade
+    +SnapshotRepository(database : DatabaseFacade)
+    +findByTaskId(taskId : UUID) : List<MapSnapshotRow>
+    +findByTaskIdAndStep(taskId : UUID, stepIndex : Int) : MapSnapshotRow
+  }
+
   IRepository <|.. SQLiteRepository
   IQueryExecutor <|.. DatabaseExecutor
   IConnection <|.. SQLiteConnection
@@ -76,58 +104,67 @@ package "Data Access Layer (DAL)" {
   DatabaseExecutor --> IConnection
   DatabaseExecutor ..> QueryRequest
   DatabaseExecutor ..> QueryResult
+
+  SnapshotRecorder --> DatabaseFacade
+  SnapshotRecorder ..> QueryRequest
+  SnapshotRecorder ..> MapSnapshotRow
+  SnapshotRecorder ..> MapSnapshot
+
+  SnapshotRepository --> DatabaseFacade
+  SnapshotRepository ..> QueryRequest
+  SnapshotRepository ..> MapSnapshotRow
 }
 
 package "CommonUtils" {
 
-  class Nod {
+  class Node {
     -id : Int
-    -fanioane : Set<String>
-    -latitudine : Double
-    -longitudine : Double
-    +Nod(id : Int)
-    +getFanion(cheie : String) : Boolean
-    +setFanion(cheie : String, valoare : Boolean) : void
+    -flags : Set<String>
+    -latitude : Double
+    -longitude : Double
+    +Node(id : Int)
+    +getFlag(key : String) : Boolean
+    +setFlag(key : String, value : Boolean) : void
   }
 
-  class Muchie {
-    -nodSursa : Nod
-    -nodDestinatie : Nod
-    -distanta : Double
-    -densitate : Double
-    -vitezaMedie : Double
-    -factorCongestie : Double
-    -pondere : Double
-    +Muchie(nodSursa : Nod, nodDestinatie : Nod, distanta : Double)
-    +calculeazaPondere() : Double
+  class Edge {
+    -sourceNode : Node
+    -destinationNode : Node
+    -distance : Double
+    -density : Double
+    -averageSpeed : Double
+    -congestionFactor : Double
+    -weight : Double
+    +Edge(sourceNode : Node, destinationNode : Node, distance : Double)
+    +calculateWeight() : Double
   }
 
-  class Graf {
-    -noduri : List<Nod>
-    -muchii : List<Muchie>
-    +Graf()
-    +adaugaNod(nod : Nod) : void
-    +adaugaMuchie(muchie : Muchie) : void
-    +getVecini(nod : Nod) : List<Nod>
-    +getSubgraf(noduriInteres : List<Nod>) : Graf
+  class Graph {
+    -nodes : List<Node>
+    -edges : List<Edge>
+    +Graph()
+    +addNode(node : Node) : void
+    +addEdge(edge : Edge) : void
+    +getNeighbors(node : Node) : List<Node>
+    +getSubgraph(nodesOfInterest : List<Node>) : Graph
   }
 
-  class Scenariu {
+  class Scenario {
     -id : UUID
-    -nume : String
-    -graf : Graf
-    -intervalOrar : String
-    -conditiiMediu : Map<String, Object>
-    -dataCreare : DateTime
-    +Scenariu(nume : String, graf : Graf)
-    +getGraf() : Graf
+    -name : String
+    -graph : Graph
+    -timeInterval : String
+    -environmentConditions : Map<String, Object>
+    -creationDate : DateTime
+    +Scenario(name : String, graph : Graph)
+    +getGraph() : Graph
   }
 
-  Graf "1" o-- "*" Nod : contine
-  Graf "1" o-- "*" Muchie : contine
-  Muchie --> "2" Nod : leaga
-  Scenariu --> Graf
-  Nod --> ConfiguratieSemaforizare
+  Graph "1" o-- "*" Node : contains
+  Graph "1" o-- "*" Edge : contains
+  Edge --> "2" Node : connects
+  Scenario --> Graph
+  Node --> TrafficLightConfiguration
 }
 
 package "Task Manager (TM)" {
@@ -138,18 +175,18 @@ package "Task Manager (TM)" {
     -microSimulator : IMicroSimulator
     -macroSimulator : IMacroSimulator
     -aggregator : ResultAggregator
-    -parametriCalibrare : ModelParametri
+    -calibrationParameters : ModelParameters
     +TaskManagerFacade(splitter : TaskSplitter, microSimulator : IMicroSimulator, macroSimulator : IMacroSimulator, aggregator : ResultAggregator)
-    +submit(task : Task) : SimulationResult
-    +calibreaza(task : Task, prag : Double) : ModelParametri
+    +submit(task : Task, observer : SimulationObserver) : SimulationResult
+    +calibrate(task : Task, threshold : Double) : ModelParameters
   }
 
   class Task {
     -id : UUID
-    -domain : Graf
-    -subdomain : Graf
-    -scenariu : Scenariu
-    -parametri : ModelParametri
+    -domain : Graph
+    -subdomain : Graph
+    -scenario : Scenario
+    -parameters : ModelParameters
   }
 
   class TaskSplitter {
@@ -162,12 +199,45 @@ package "Task Manager (TM)" {
     -macroPart : Task
   }
 
+  ' ---- Per-step callback, implemented by anything that wants to observe progress ----
+  interface SimulationObserver {
+    +onStep(stepIndex : Int, timestamp : Double, snapshot : MapSnapshot) : void
+  }
+
+  ' ---- Lightweight per-step position of a single agent. NOT the full Agent object ----
+  ' ---- (no route/history - only what changes tick to tick) ----
+  class AgentPosition {
+    -agentId : UUID
+    -edgeId : UUID
+    -position : Double
+    -speed : Double
+  }
+
+  ' ---- Lightweight per-step state of a single cohort. NOT the full Cohort object ----
+  class CohortState {
+    -cohortId : UUID
+    -edgeId : UUID
+    -vehicleCount : Int
+    -density : Double
+    -averageSpeed : Double
+  }
+
+  ' ---- Point-in-time state pushed to the observer each tick ----
+  ' ---- Holds ONLY what moves: agent/cohort positions. The map/graph never changes. ----
+  class MapSnapshot {
+    -taskId : UUID
+    -stepIndex : Int
+    -timestamp : Double
+    -agentPositions : List<AgentPosition>
+    -cohortStates : List<CohortState>
+  }
+
   interface IMicroSimulator {
-    +simulate(task : Task) : PartialResult
+    +simulate(task : Task, observer : SimulationObserver) : PartialResult
   }
 
   interface IMacroSimulator {
-    +simulate(task : Task) : PartialResult
+    +simulate(task : Task, observer : SimulationObserver) : PartialResult
   }
 
   class PartialResult {
@@ -186,45 +256,45 @@ package "Task Manager (TM)" {
     -success : Boolean
   }
 
-  class ModelParametri {
-    -valori : Map<String, Double>
-    -eroareRelativa : Double
-    +ModelParametri()
-    +ajusteaza(strategie : String) : void
-    +esteValid(prag : Double) : Boolean
+  class ModelParameters {
+    -values : Map<String, Double>
+    -relativeError : Double
+    +ModelParameters()
+    +adjust(strategy : String) : void
+    +isValid(threshold : Double) : Boolean
   }
 
   class Agent {
     -id : UUID
-    -pozitie : Double
-    -viteza : Double
-    -nodCurent : Nod
-    -ruta : List<Nod>
-    +Agent(id : UUID, nodCurent : Nod)
-    +actualizeazaPozitie(deltaT : Double) : void
-    +aAjunsLaDestinatie() : Boolean
+    -position : Double
+    -speed : Double
+    -currentNode : Node
+    -route : List<Node>
+    +Agent(id : UUID, currentNode : Node)
+    +updatePosition(deltaT : Double) : void
+    +hasReachedDestination() : Boolean
   }
 
-  class Cohorta {
+  class Cohort {
     -id : UUID
-    -numarVehicule : Int
-    -densitate : Double
-    -vitezaMedie : Double
-    -muchieAsociata : Muchie
-    +Cohorta(numarVehicule : Int, densitate : Double, muchieAsociata : Muchie)
-    +transformaInAgenti() : List<Agent>
-    +agregaDinAgenti(agenti : List<Agent>) : void
+    -vehicleCount : Int
+    -density : Double
+    -averageSpeed : Double
+    -associatedEdge : Edge
+    +Cohort(vehicleCount : Int, density : Double, associatedEdge : Edge)
+    +transformIntoAgents() : List<Agent>
+    +aggregateFromAgents(agents : List<Agent>) : void
   }
 
   package "Micro Simulator (mSim)" {
     class MicroSimulator {
-      +simulate(task : Task) : PartialResult
+      +simulate(task : Task, observer : SimulationObserver) : PartialResult
     }
   }
 
   package "Macro Simulator (MSim)" {
     class MacroSimulator {
-      +simulate(task : Task) : PartialResult
+      +simulate(task : Task, observer : SimulationObserver) : PartialResult
     }
   }
 
@@ -235,11 +305,12 @@ package "Task Manager (TM)" {
   TaskManagerFacade --> IMicroSimulator
   TaskManagerFacade --> IMacroSimulator
   TaskManagerFacade --> ResultAggregator
-  TaskManagerFacade --> ModelParametri
+  TaskManagerFacade --> ModelParameters
   TaskManagerFacade ..> Task
   TaskManagerFacade ..> SimulationResult
+  TaskManagerFacade ..> SimulationObserver
   TaskManagerFacade ..> Agent
-  TaskManagerFacade ..> Cohorta
+  TaskManagerFacade ..> Cohort
 
   TaskSplitter ..> Task
   TaskSplitter ..> SplitTask
@@ -247,66 +318,77 @@ package "Task Manager (TM)" {
 
   IMicroSimulator ..> PartialResult
   IMicroSimulator ..> Agent
+  IMicroSimulator ..> SimulationObserver
   IMacroSimulator ..> PartialResult
-  IMacroSimulator ..> Cohorta
+  IMacroSimulator ..> Cohort
+  IMacroSimulator ..> SimulationObserver
+
+  MapSnapshot ..> AgentPosition
+  MapSnapshot ..> CohortState
+  SimulationObserver ..> MapSnapshot
+  AgentPosition ..> Agent : derived from
+  CohortState ..> Cohort : derived from
 
   ResultAggregator ..> PartialResult
   ResultAggregator ..> SimulationResult
 
-  Agent --> Nod
-  Cohorta --> Muchie
-  Cohorta ..> Agent : transformaInAgenti()
-  Agent ..> Cohorta : agregaDinAgenti()
+  Agent --> Node
+  Cohort --> Edge
+  Cohort ..> Agent : transformIntoAgents()
+  Agent ..> Cohort : aggregateFromAgents()
 }
 
-Task ..> Graf
-Task ..> Scenariu
-Task ..> ModelParametri
+Task ..> Graph
+Task ..> Scenario
+Task ..> ModelParameters
 
-package "Motor - Optimizare" {
+' ---- SnapshotRecorder (DAL) is one concrete SimulationObserver ----
+SnapshotRecorder ..|> SimulationObserver
 
-  enum RegimSemaforizare {
+package "Engine - Optimization" {
+
+  enum TrafficLightRegime {
     STATIC
-    ADAPTIV
+    ADAPTIVE
   }
 
-  class ConfiguratieSemaforizare {
+  class TrafficLightConfiguration {
     -id : UUID
-    -timpiFaze : Map<Nod, List<Double>>
-    -regim : RegimSemaforizare
-    +ConfiguratieSemaforizare(regim : RegimSemaforizare)
-    +getTimpi(nod : Nod) : List<Double>
-    +setTimpi(nod : Nod, timpi : List<Double>) : void
-    +costTotal(alpha : Double, beta : Double, gamma : Double, delta : Double) : Double
+    -phaseTimes : Map<Node, List<Double>>
+    -regime : TrafficLightRegime
+    +TrafficLightConfiguration(regime : TrafficLightRegime)
+    +getTimes(node : Node) : List<Double>
+    +setTimes(node : Node, times : List<Double>) : void
+    +totalCost(alpha : Double, beta : Double, gamma : Double, delta : Double) : Double
   }
 
-  interface IAlgoritmOptimizare {
-    +optimizeaza(configuratieInitiala : ConfiguratieSemaforizare, modelValidat : SimulationResult) : ConfiguratieSemaforizare
+  interface IOptimizationAlgorithm {
+    +optimize(initialConfiguration : TrafficLightConfiguration, validatedModel : SimulationResult) : TrafficLightConfiguration
   }
 
-  class AlgoritmiOptimizare {
-    -populatie : List<ConfiguratieSemaforizare>
-    -numarGeneratii : Int
-    -celMaiBunCost : Double
-    +AlgoritmiOptimizare(numarGeneratii : Int)
-    +optimizeaza(configuratieInitiala : ConfiguratieSemaforizare, modelValidat : SimulationResult) : ConfiguratieSemaforizare
-    +actualizeazaPopulatie(configuratie : ConfiguratieSemaforizare, cost : Double) : void
+  class OptimizationAlgorithms {
+    -population : List<TrafficLightConfiguration>
+    -generationCount : Int
+    -bestCost : Double
+    +OptimizationAlgorithms(generationCount : Int)
+    +optimize(initialConfiguration : TrafficLightConfiguration, validatedModel : SimulationResult) : TrafficLightConfiguration
+    +updatePopulation(configuration : TrafficLightConfiguration, cost : Double) : void
   }
 
-  class SincronizareSemafoare {
-    +SincronizareSemafoare()
-    +propuneConfiguratie(configuratieCurenta : ConfiguratieSemaforizare) : ConfiguratieSemaforizare
-    +evalueazaCost(rezultat : SimulationResult) : Double
+  class TrafficLightSynchronization {
+    +TrafficLightSynchronization()
+    +proposeConfiguration(currentConfiguration : TrafficLightConfiguration) : TrafficLightConfiguration
+    +evaluateCost(result : SimulationResult) : Double
   }
 
-  IAlgoritmOptimizare <|.. AlgoritmiOptimizare
-  AlgoritmiOptimizare --> SincronizareSemafoare
-  SincronizareSemafoare --> TaskManagerFacade
-  SincronizareSemafoare ..> ConfiguratieSemaforizare
-  AlgoritmiOptimizare ..> ConfiguratieSemaforizare
-  AlgoritmiOptimizare ..> SimulationResult
-  ConfiguratieSemaforizare --> RegimSemaforizare
-  ConfiguratieSemaforizare "1" o-- "*" Nod : configureaza
+  IOptimizationAlgorithm <|.. OptimizationAlgorithms
+  OptimizationAlgorithms --> TrafficLightSynchronization
+  TrafficLightSynchronization --> TaskManagerFacade
+  TrafficLightSynchronization ..> TrafficLightConfiguration
+  OptimizationAlgorithms ..> TrafficLightConfiguration
+  OptimizationAlgorithms ..> SimulationResult
+  TrafficLightConfiguration --> TrafficLightRegime
+  TrafficLightConfiguration "1" o-- "*" Node : configures
 }
 
 package "Communication (COM)" {
@@ -373,10 +455,15 @@ package "Communication (COM)" {
 
   CommandDispatcher --> TaskManagerFacade
   CommandDispatcher --> DatabaseFacade
-  CommandDispatcher --> AlgoritmiOptimizare
+  CommandDispatcher --> OptimizationAlgorithms
+  ' ---- Dispatcher wires the recorder into RunCommand's simulate call ----
+  CommandDispatcher --> SnapshotRecorder
+  ' ---- Dispatcher (or a query command) pulls snapshots back for playback/drawing ----
+  CommandDispatcher --> SnapshotRepository
 }
 
-DatabaseFacade ..> Scenariu : persists
-DatabaseFacade ..> ConfiguratieSemaforizare : persists
+DatabaseFacade ..> Scenario : persists
+DatabaseFacade ..> TrafficLightConfiguration : persists
+DatabaseFacade ..> MapSnapshotRow : persists
 
 @enduml

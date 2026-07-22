@@ -1,0 +1,8 @@
+package com
+
+enum class SubmoduleStatus {
+    SUBMODULE_FINISHED,
+    SUBMODULE_FAILED,
+    SUBMODULE_INTERRUPTED,
+    SUBMODULE_WAITING_FOR_RESOURCES,
+}

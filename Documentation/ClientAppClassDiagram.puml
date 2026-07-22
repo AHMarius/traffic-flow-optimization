@@ -206,9 +206,6 @@ package "CommonUtils" {
   Scenariu --> Graf
 }
 
-' ============================================================
-' Existing GUI Layer – kept unchanged, but extended with new features
-' ============================================================
 package "GUI Layer (GUI)" {
 
   class GUIFacade {
@@ -275,7 +272,6 @@ package "GUI Layer (GUI)" {
   WindowManager --> WindowLoader
   WindowManager o-- Window
 
-  ' ---- ADDED: GUI feature classes (all new) ----
   class LocalSimulator {
     -graf : Graf
     -scenariuCurent : Scenariu
@@ -303,7 +299,6 @@ package "GUI Layer (GUI)" {
     +afiseazaComparatie() : void
   }
 
-  ' Relationships among new classes and existing
   LocalSimulator --> Graf
   LocalSimulator --> Scenariu
   TrafficVisualization --> Graf
