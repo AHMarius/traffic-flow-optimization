@@ -1,0 +1,3 @@
+package commonutils
+
+class TraficLightConfiguration
