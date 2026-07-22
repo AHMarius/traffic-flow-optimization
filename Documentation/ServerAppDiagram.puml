@@ -1,382 +1,469 @@
-    @startuml
+@startuml
 
-    skinparam linetype ortho
-    skinparam shadowing false
-    skinparam roundcorner 10
-    left to right direction
-    title Server Application
+skinparam linetype ortho
+skinparam shadowing false
+skinparam roundcorner 10
+left to right direction
+title Server Application
 
-    package "Data Access Layer (DAL)" {
+package "Data Access Layer (DAL)" {
 
-     class DatabaseFacade {
-        -repository : IRepository
-        +DatabaseFacade(repository : IRepository)
-        +submit(request : QueryRequest) : QueryResult
-      }
+  class DatabaseFacade {
+    -repository : IRepository
+    +DatabaseFacade(repository : IRepository)
+    +submit(request : QueryRequest) : QueryResult
+  }
 
-      interface IRepository {
-        +submit(request : QueryRequest) : QueryResult
-      }
+  interface IRepository {
+    +submit(request : QueryRequest) : QueryResult
+  }
 
-      class SQLiteRepository {
-        -executor : IQueryExecutor
-        +SQLiteRepository(executor : IQueryExecutor)
-        +submit(request : QueryRequest) : QueryResult
-      }
+  class SQLiteRepository {
+    -executor : IQueryExecutor
+    +SQLiteRepository(executor : IQueryExecutor)
+    +submit(request : QueryRequest) : QueryResult
+  }
 
-      interface IQueryExecutor {
-        +execute(request : QueryRequest) : QueryResult
-      }
+  interface IQueryExecutor {
+    +execute(request : QueryRequest) : QueryResult
+  }
 
-      class DatabaseExecutor {
-        -connection : IConnection
-        +DatabaseExecutor(connection : IConnection)
-        +execute(request : QueryRequest) : QueryResult
-      }
+  class DatabaseExecutor {
+    -connection : IConnection
+    +DatabaseExecutor(connection : IConnection)
+    +execute(request : QueryRequest) : QueryResult
+  }
 
-      interface IConnection {
-        +open() : void
-        +close() : void
-        +execute(sql : String, params : List<Object>) : QueryResult
-      }
+  interface IConnection {
+    +open() : void
+    +close() : void
+    +execute(sql : String, params : List<Object>) : QueryResult
+  }
 
-      class SQLiteConnection {
-        -connectionString : String
-        +SQLiteConnection(connectionString : String)
-        +open() : void
-        +close() : void
-        +execute(sql : String, params : List<Object>) : QueryResult
-      }
+  class SQLiteConnection {
+    -connectionString : String
+    +SQLiteConnection(connectionString : String)
+    +open() : void
+    +close() : void
+    +execute(sql : String, params : List<Object>) : QueryResult
+  }
 
-      class QueryResult {
-        -rows : List<Map<String, Object>>
-        -affectedRows : int
-        -success : Boolean
-        -errorMessage : String
-      }
+  class QueryResult {
+    -rows : List<Map<String, Object>>
+    -affectedRows : int
+    -success : Boolean
+    -errorMessage : String
+  }
 
-      class QueryRequest {
-        -id : UUID
-        -sql : String
-        -params : List<Object>
-      }
+  class QueryRequest {
+    -id : UUID
+    -sql : String
+    -params : List<Object>
+  }
 
-      IRepository <|.. SQLiteRepository
-      IQueryExecutor <|.. DatabaseExecutor
-      IConnection <|.. SQLiteConnection
+  ' ---- One row per (task, step): agent/cohort positions only. ----
+  ' ---- Map topology itself lives in Scenario/Graph, persisted once, not per row. ----
+  class MapSnapshotRow {
+    -id : UUID
+    -taskId : UUID
+    -stepIndex : Int
+    -timestamp : Double
+    -agentPositionsJson : String
+    -cohortStatesJson : String
+    -createdAt : DateTime
+  }
 
-      DatabaseFacade --> IRepository
-      DatabaseFacade ..> QueryRequest
-      DatabaseFacade ..> QueryResult
+  ' ---- Persists per-step position data via the same DB abstraction ----
+  class SnapshotRecorder {
+    -database : DatabaseFacade
+    +SnapshotRecorder(database : DatabaseFacade)
+    +onStep(stepIndex : Int, timestamp : Double, snapshot : MapSnapshot) : void
+    -toRow(taskId : UUID, stepIndex : Int, timestamp : Double, snapshot : MapSnapshot) : MapSnapshotRow
+  }
 
-      SQLiteRepository --> IQueryExecutor
-      SQLiteRepository ..> QueryRequest
-      SQLiteRepository ..> QueryResult
+  ' ---- Read path: frontend pulls rows back to replay/draw a run ----
+  class SnapshotRepository {
+    -database : DatabaseFacade
+    +SnapshotRepository(database : DatabaseFacade)
+    +findByTaskId(taskId : UUID) : List<MapSnapshotRow>
+    +findByTaskIdAndStep(taskId : UUID, stepIndex : Int) : MapSnapshotRow
+  }
 
-      DatabaseExecutor --> IConnection
-      DatabaseExecutor ..> QueryRequest
-      DatabaseExecutor ..> QueryResult
+  IRepository <|.. SQLiteRepository
+  IQueryExecutor <|.. DatabaseExecutor
+  IConnection <|.. SQLiteConnection
+
+  DatabaseFacade --> IRepository
+  DatabaseFacade ..> QueryRequest
+  DatabaseFacade ..> QueryResult
+
+  SQLiteRepository --> IQueryExecutor
+  SQLiteRepository ..> QueryRequest
+  SQLiteRepository ..> QueryResult
+
+  DatabaseExecutor --> IConnection
+  DatabaseExecutor ..> QueryRequest
+  DatabaseExecutor ..> QueryResult
+
+  SnapshotRecorder --> DatabaseFacade
+  SnapshotRecorder ..> QueryRequest
+  SnapshotRecorder ..> MapSnapshotRow
+  SnapshotRecorder ..> MapSnapshot
+
+  SnapshotRepository --> DatabaseFacade
+  SnapshotRepository ..> QueryRequest
+  SnapshotRepository ..> MapSnapshotRow
+}
+
+package "CommonUtils" {
+
+  class Node {
+    -id : Int
+    -flags : Set<String>
+    -latitude : Double
+    -longitude : Double
+    +Node(id : Int)
+    +getFlag(key : String) : Boolean
+    +setFlag(key : String, value : Boolean) : void
+  }
+
+  class Edge {
+    -sourceNode : Node
+    -destinationNode : Node
+    -distance : Double
+    -density : Double
+    -averageSpeed : Double
+    -congestionFactor : Double
+    -weight : Double
+    +Edge(sourceNode : Node, destinationNode : Node, distance : Double)
+    +calculateWeight() : Double
+  }
+
+  class Graph {
+    -nodes : List<Node>
+    -edges : List<Edge>
+    +Graph()
+    +addNode(node : Node) : void
+    +addEdge(edge : Edge) : void
+    +getNeighbors(node : Node) : List<Node>
+    +getSubgraph(nodesOfInterest : List<Node>) : Graph
+  }
+
+  class Scenario {
+    -id : UUID
+    -name : String
+    -graph : Graph
+    -timeInterval : String
+    -environmentConditions : Map<String, Object>
+    -creationDate : DateTime
+    +Scenario(name : String, graph : Graph)
+    +getGraph() : Graph
+  }
+
+  Graph "1" o-- "*" Node : contains
+  Graph "1" o-- "*" Edge : contains
+  Edge --> "2" Node : connects
+  Scenario --> Graph
+  Node --> TrafficLightConfiguration
+}
+
+package "Task Manager (TM)" {
+
+  ' ---- Public facade: orchestrates split -> simulate -> aggregate ----
+  class TaskManagerFacade {
+    -splitter : TaskSplitter
+    -microSimulator : IMicroSimulator
+    -macroSimulator : IMacroSimulator
+    -aggregator : ResultAggregator
+    -calibrationParameters : ModelParameters
+    +TaskManagerFacade(splitter : TaskSplitter, microSimulator : IMicroSimulator, macroSimulator : IMacroSimulator, aggregator : ResultAggregator)
+    +submit(task : Task, observer : SimulationObserver) : SimulationResult
+    +calibrate(task : Task, threshold : Double) : ModelParameters
+  }
+
+  class Task {
+    -id : UUID
+    -domain : Graph
+    -subdomain : Graph
+    -scenario : Scenario
+    -parameters : ModelParameters
+  }
+
+  class TaskSplitter {
+    +TaskSplitter()
+    +split(task : Task) : SplitTask
+  }
+
+  class SplitTask {
+    -microPart : Task
+    -macroPart : Task
+  }
+
+  ' ---- Per-step callback, implemented by anything that wants to observe progress ----
+  interface SimulationObserver {
+    +onStep(stepIndex : Int, timestamp : Double, snapshot : MapSnapshot) : void
+  }
+
+  ' ---- Lightweight per-step position of a single agent. NOT the full Agent object ----
+  ' ---- (no route/history - only what changes tick to tick) ----
+  class AgentPosition {
+    -agentId : UUID
+    -edgeId : UUID
+    -position : Double
+    -speed : Double
+  }
+
+  ' ---- Lightweight per-step state of a single cohort. NOT the full Cohort object ----
+  class CohortState {
+    -cohortId : UUID
+    -edgeId : UUID
+    -vehicleCount : Int
+    -density : Double
+    -averageSpeed : Double
+  }
+
+  ' ---- Point-in-time state pushed to the observer each tick ----
+  ' ---- Holds ONLY what moves: agent/cohort positions. The map/graph never changes. ----
+  class MapSnapshot {
+    -taskId : UUID
+    -stepIndex : Int
+    -timestamp : Double
+    -agentPositions : List<AgentPosition>
+    -cohortStates : List<CohortState>
+  }
+
+  interface IMicroSimulator {
+    +simulate(task : Task, observer : SimulationObserver) : PartialResult
+  }
+
+  interface IMacroSimulator {
+    +simulate(task : Task, observer : SimulationObserver) : PartialResult
+  }
+
+  class PartialResult {
+    -taskId : UUID
+    -data : Map<String, Object>
+  }
+
+  class ResultAggregator {
+    +ResultAggregator()
+    +combine(microResult : PartialResult, macroResult : PartialResult) : SimulationResult
+  }
+
+  class SimulationResult {
+    -taskId : UUID
+    -data : Map<String, Object>
+    -success : Boolean
+  }
+
+  class ModelParameters {
+    -values : Map<String, Double>
+    -relativeError : Double
+    +ModelParameters()
+    +adjust(strategy : String) : void
+    +isValid(threshold : Double) : Boolean
+  }
+
+  class Agent {
+    -id : UUID
+    -position : Double
+    -speed : Double
+    -currentNode : Node
+    -route : List<Node>
+    +Agent(id : UUID, currentNode : Node)
+    +updatePosition(deltaT : Double) : void
+    +hasReachedDestination() : Boolean
+  }
+
+  class Cohort {
+    -id : UUID
+    -vehicleCount : Int
+    -density : Double
+    -averageSpeed : Double
+    -associatedEdge : Edge
+    +Cohort(vehicleCount : Int, density : Double, associatedEdge : Edge)
+    +transformIntoAgents() : List<Agent>
+    +aggregateFromAgents(agents : List<Agent>) : void
+  }
+
+  package "Micro Simulator (mSim)" {
+    class MicroSimulator {
+      +simulate(task : Task, observer : SimulationObserver) : PartialResult
     }
+  }
 
-    package "CommonUtils" {
-
-      class Nod {
-        -id : Int
-        -fanioane : Set<String>
-        -latitudine : Double
-        -longitudine : Double
-        +Nod(id : Int)
-        +getFanion(cheie : String) : Boolean
-        +setFanion(cheie : String, valoare : Boolean) : void
-      }
-
-      class Muchie {
-        -nodSursa : Nod
-        -nodDestinatie : Nod
-        -distanta : Double
-        -densitate : Double
-        -vitezaMedie : Double
-        -factorCongestie : Double
-        -pondere : Double
-        +Muchie(nodSursa : Nod, nodDestinatie : Nod, distanta : Double)
-        +calculeazaPondere() : Double
-      }
-
-      class Graf {
-        -noduri : List<Nod>
-        -muchii : List<Muchie>
-        +Graf()
-        +adaugaNod(nod : Nod) : void
-        +adaugaMuchie(muchie : Muchie) : void
-        +getVecini(nod : Nod) : List<Nod>
-        +getSubgraf(noduriInteres : List<Nod>) : Graf
-      }
-
-      class Scenariu {
-        -id : UUID
-        -nume : String
-        -graf : Graf
-        -intervalOrar : String
-        -conditiiMediu : Map<String, Object>
-        -dataCreare : DateTime
-        +Scenariu(nume : String, graf : Graf)
-        +getGraf() : Graf
-      }
-
-      Graf "1" o-- "*" Nod : contine
-      Graf "1" o-- "*" Muchie : contine
-      Muchie --> "2" Nod : leaga
-      Scenariu --> Graf
-      Nod --> ConfiguratieSemaforizare
+  package "Macro Simulator (MSim)" {
+    class MacroSimulator {
+      +simulate(task : Task, observer : SimulationObserver) : PartialResult
     }
+  }
 
-    package "Task Manager (TM)" {
+  IMicroSimulator <|.. MicroSimulator
+  IMacroSimulator <|.. MacroSimulator
 
-      ' ---- Public facade: orchestrates split -> simulate -> aggregate ----
-      class TaskManagerFacade {
-        -splitter : TaskSplitter
-        -microSimulator : IMicroSimulator
-        -macroSimulator : IMacroSimulator
-        -aggregator : ResultAggregator
-        -parametriCalibrare : ModelParametri
-        +TaskManagerFacade(splitter : TaskSplitter, microSimulator : IMicroSimulator, macroSimulator : IMacroSimulator, aggregator : ResultAggregator)
-        +submit(task : Task) : SimulationResult
-        +calibreaza(task : Task, prag : Double) : ModelParametri
-      }
+  TaskManagerFacade --> TaskSplitter
+  TaskManagerFacade --> IMicroSimulator
+  TaskManagerFacade --> IMacroSimulator
+  TaskManagerFacade --> ResultAggregator
+  TaskManagerFacade --> ModelParameters
+  TaskManagerFacade ..> Task
+  TaskManagerFacade ..> SimulationResult
+  TaskManagerFacade ..> SimulationObserver
+  TaskManagerFacade ..> Agent
+  TaskManagerFacade ..> Cohort
 
-      class Task {
-        -id : UUID
-        -domain : Graf
-        -subdomain : Graf
-        -scenariu : Scenariu
-        -parametri : ModelParametri
-      }
+  TaskSplitter ..> Task
+  TaskSplitter ..> SplitTask
+  SplitTask o-- "2" Task
 
-      class TaskSplitter {
-        +TaskSplitter()
-        +split(task : Task) : SplitTask
-      }
+  IMicroSimulator ..> PartialResult
+  IMicroSimulator ..> Agent
+  IMicroSimulator ..> SimulationObserver
+  IMacroSimulator ..> PartialResult
+  IMacroSimulator ..> Cohort
+  IMacroSimulator ..> SimulationObserver
 
-      class SplitTask {
-        -microPart : Task
-        -macroPart : Task
-      }
+  MapSnapshot ..> AgentPosition
+  MapSnapshot ..> CohortState
+  SimulationObserver ..> MapSnapshot
+  AgentPosition ..> Agent : derived from
+  CohortState ..> Cohort : derived from
 
-      interface IMicroSimulator {
-        +simulate(task : Task) : PartialResult
-      }
+  ResultAggregator ..> PartialResult
+  ResultAggregator ..> SimulationResult
 
-      interface IMacroSimulator {
-        +simulate(task : Task) : PartialResult
-      }
+  Agent --> Node
+  Cohort --> Edge
+  Cohort ..> Agent : transformIntoAgents()
+  Agent ..> Cohort : aggregateFromAgents()
+}
 
-      class PartialResult {
-        -taskId : UUID
-        -data : Map<String, Object>
-      }
+Task ..> Graph
+Task ..> Scenario
+Task ..> ModelParameters
 
-      class ResultAggregator {
-        +ResultAggregator()
-        +combine(microResult : PartialResult, macroResult : PartialResult) : SimulationResult
-      }
+' ---- SnapshotRecorder (DAL) is one concrete SimulationObserver ----
+SnapshotRecorder ..|> SimulationObserver
 
-      class SimulationResult {
-        -taskId : UUID
-        -data : Map<String, Object>
-        -success : Boolean
-      }
+package "Engine - Optimization" {
 
-      class ModelParametri {
-        -valori : Map<String, Double>
-        -eroareRelativa : Double
-        +ModelParametri()
-        +ajusteaza(strategie : String) : void
-        +esteValid(prag : Double) : Boolean
-      }
+  enum TrafficLightRegime {
+    STATIC
+    ADAPTIVE
+  }
 
-      class Agent {
-        -id : UUID
-        -pozitie : Double
-        -viteza : Double
-        -nodCurent : Nod
-        -ruta : List<Nod>
-        +Agent(id : UUID, nodCurent : Nod)
-        +actualizeazaPozitie(deltaT : Double) : void
-        +aAjunsLaDestinatie() : Boolean
-      }
+  class TrafficLightConfiguration {
+    -id : UUID
+    -phaseTimes : Map<Node, List<Double>>
+    -regime : TrafficLightRegime
+    +TrafficLightConfiguration(regime : TrafficLightRegime)
+    +getTimes(node : Node) : List<Double>
+    +setTimes(node : Node, times : List<Double>) : void
+    +totalCost(alpha : Double, beta : Double, gamma : Double, delta : Double) : Double
+  }
 
-      class Cohorta {
-        -id : UUID
-        -numarVehicule : Int
-        -densitate : Double
-        -vitezaMedie : Double
-        -muchieAsociata : Muchie
-        +Cohorta(numarVehicule : Int, densitate : Double, muchieAsociata : Muchie)
-        +transformaInAgenti() : List<Agent>
-        +agregaDinAgenti(agenti : List<Agent>) : void
-      }
+  interface IOptimizationAlgorithm {
+    +optimize(initialConfiguration : TrafficLightConfiguration, validatedModel : SimulationResult) : TrafficLightConfiguration
+  }
 
-      package "Micro Simulator (mSim)" {
-        class MicroSimulator {
-          +simulate(task : Task) : PartialResult
-        }
-      }
+  class OptimizationAlgorithms {
+    -population : List<TrafficLightConfiguration>
+    -generationCount : Int
+    -bestCost : Double
+    +OptimizationAlgorithms(generationCount : Int)
+    +optimize(initialConfiguration : TrafficLightConfiguration, validatedModel : SimulationResult) : TrafficLightConfiguration
+    +updatePopulation(configuration : TrafficLightConfiguration, cost : Double) : void
+  }
 
-      package "Macro Simulator (MSim)" {
-        class MacroSimulator {
-          +simulate(task : Task) : PartialResult
-        }
-      }
+  class TrafficLightSynchronization {
+    +TrafficLightSynchronization()
+    +proposeConfiguration(currentConfiguration : TrafficLightConfiguration) : TrafficLightConfiguration
+    +evaluateCost(result : SimulationResult) : Double
+  }
 
-      IMicroSimulator <|.. MicroSimulator
-      IMacroSimulator <|.. MacroSimulator
+  IOptimizationAlgorithm <|.. OptimizationAlgorithms
+  OptimizationAlgorithms --> TrafficLightSynchronization
+  TrafficLightSynchronization --> TaskManagerFacade
+  TrafficLightSynchronization ..> TrafficLightConfiguration
+  OptimizationAlgorithms ..> TrafficLightConfiguration
+  OptimizationAlgorithms ..> SimulationResult
+  TrafficLightConfiguration --> TrafficLightRegime
+  TrafficLightConfiguration "1" o-- "*" Node : configures
+}
 
-      TaskManagerFacade --> TaskSplitter
-      TaskManagerFacade --> IMicroSimulator
-      TaskManagerFacade --> IMacroSimulator
-      TaskManagerFacade --> ResultAggregator
-      TaskManagerFacade --> ModelParametri
-      TaskManagerFacade ..> Task
-      TaskManagerFacade ..> SimulationResult
-      TaskManagerFacade ..> Agent
-      TaskManagerFacade ..> Cohorta
+package "Communication (COM)" {
 
-      TaskSplitter ..> Task
-      TaskSplitter ..> SplitTask
-      SplitTask o-- "2" Task
+  interface ICommunicationChannel {
+    +parseRequest(input : String) : Command
+  }
 
-      IMicroSimulator ..> PartialResult
-      IMicroSimulator ..> Agent
-      IMacroSimulator ..> PartialResult
-      IMacroSimulator ..> Cohorta
+  class CliChannel {
+    +parseRequest(input : String) : Command
+  }
 
-      ResultAggregator ..> PartialResult
-      ResultAggregator ..> SimulationResult
+  class ApiChannel {
+    +parseRequest(input : String) : Command
+    +establishConnection() : void
+    +respond(status : ExecutionStatus) : void
+  }
 
-      Agent --> Nod
-      Cohorta --> Muchie
-      Cohorta ..> Agent : transformaInAgenti()
-      Agent ..> Cohorta : agregaDinAgenti()
-    }
+  enum ExecutionStatus {
+    SUCCESS
+    STOPPED
+    INTERRUPTED
+    FAILED
+    WAITING_FOR_INPUT
+  }
 
-    Task ..> Graf
-    Task ..> Scenariu
-    Task ..> ModelParametri
+  abstract class Command {
+    -data : String
+  }
 
-    package "Motor - Optimizare" {
+  class PreloadCommand
+  class LoadAndRunCommand
+  class RunCommand
+  class StoreCommand
+  class ResetCommand
 
-      enum RegimSemaforizare {
-        STATIC
-        ADAPTIV
-      }
+  class CommandDispatcher {
+    +dispatch(command : Command) : void
+    +awaitSubmoduleStatus(status : SubmoduleStatus) : void
+  }
 
-      class ConfiguratieSemaforizare {
-        -id : UUID
-        -timpiFaze : Map<Nod, List<Double>>
-        -regim : RegimSemaforizare
-        +ConfiguratieSemaforizare(regim : RegimSemaforizare)
-        +getTimpi(nod : Nod) : List<Double>
-        +setTimpi(nod : Nod, timpi : List<Double>) : void
-        +costTotal(alpha : Double, beta : Double, gamma : Double, delta : Double) : Double
-      }
+  enum SubmoduleStatus {
+    SUBMODULE_FINISHED
+    SUBMODULE_FAILED
+    SUBMODULE_INTERRUPTED
+    SUBMODULE_WAITING_FOR_RESOURCES
+  }
 
-      interface IAlgoritmOptimizare {
-        +optimizeaza(configuratieInitiala : ConfiguratieSemaforizare, modelValidat : SimulationResult) : ConfiguratieSemaforizare
-      }
+  ICommunicationChannel <|.. CliChannel
+  ICommunicationChannel <|.. ApiChannel
 
-      class AlgoritmiOptimizare {
-        -populatie : List<ConfiguratieSemaforizare>
-        -numarGeneratii : Int
-        -celMaiBunCost : Double
-        +AlgoritmiOptimizare(numarGeneratii : Int)
-        +optimizeaza(configuratieInitiala : ConfiguratieSemaforizare, modelValidat : SimulationResult) : ConfiguratieSemaforizare
-        +actualizeazaPopulatie(configuratie : ConfiguratieSemaforizare, cost : Double) : void
-      }
+  Command <|-- PreloadCommand
+  Command <|-- LoadAndRunCommand
+  Command <|-- RunCommand
+  Command <|-- StoreCommand
+  Command <|-- ResetCommand
 
-      class SincronizareSemafoare {
-        +SincronizareSemafoare()
-        +propuneConfiguratie(configuratieCurenta : ConfiguratieSemaforizare) : ConfiguratieSemaforizare
-        +evalueazaCost(rezultat : SimulationResult) : Double
-      }
+  ICommunicationChannel ..> Command
+  ApiChannel ..> ExecutionStatus
+  CommandDispatcher ..> SubmoduleStatus
 
-      IAlgoritmOptimizare <|.. AlgoritmiOptimizare
-      AlgoritmiOptimizare --> SincronizareSemafoare
-      SincronizareSemafoare --> TaskManagerFacade
-      SincronizareSemafoare ..> ConfiguratieSemaforizare
-      AlgoritmiOptimizare ..> ConfiguratieSemaforizare
-      AlgoritmiOptimizare ..> SimulationResult
-      ConfiguratieSemaforizare --> RegimSemaforizare
-      ConfiguratieSemaforizare "1" o-- "*" Nod : configureaza
-    }
+  CliChannel --> CommandDispatcher
+  ApiChannel --> CommandDispatcher
 
-    package "Communication (COM)" {
+  CommandDispatcher --> TaskManagerFacade
+  CommandDispatcher --> DatabaseFacade
+  CommandDispatcher --> OptimizationAlgorithms
+  ' ---- Dispatcher wires the recorder into RunCommand's simulate call ----
+  CommandDispatcher --> SnapshotRecorder
+  ' ---- Dispatcher (or a query command) pulls snapshots back for playback/drawing ----
+  CommandDispatcher --> SnapshotRepository
+}
 
-      interface ICommunicationChannel {
-        +parseRequest(input : String) : Command
-      }
+DatabaseFacade ..> Scenario : persists
+DatabaseFacade ..> TrafficLightConfiguration : persists
+DatabaseFacade ..> MapSnapshotRow : persists
 
-      class CliChannel {
-        +parseRequest(input : String) : Command
-      }
-
-      class ApiChannel {
-        +parseRequest(input : String) : Command
-        +establishConnection() : void
-        +respond(status : ExecutionStatus) : void
-      }
-
-      enum ExecutionStatus {
-        SUCCESS
-        STOPPED
-        INTERRUPTED
-        FAILED
-        WAITING_FOR_INPUT
-      }
-
-      abstract class Command {
-        -data : String
-      }
-
-      class PreloadCommand
-      class LoadAndRunCommand
-      class RunCommand
-      class StoreCommand
-      class ResetCommand
-
-      class CommandDispatcher {
-        +dispatch(command : Command) : void
-        +awaitSubmoduleStatus(status : SubmoduleStatus) : void
-      }
-
-      enum SubmoduleStatus {
-        SUBMODULE_FINISHED
-        SUBMODULE_FAILED
-        SUBMODULE_INTERRUPTED
-        SUBMODULE_WAITING_FOR_RESOURCES
-      }
-
-      ICommunicationChannel <|.. CliChannel
-      ICommunicationChannel <|.. ApiChannel
-
-      Command <|-- PreloadCommand
-      Command <|-- LoadAndRunCommand
-      Command <|-- RunCommand
-      Command <|-- StoreCommand
-      Command <|-- ResetCommand
-
-      ICommunicationChannel ..> Command
-      ApiChannel ..> ExecutionStatus
-      CommandDispatcher ..> SubmoduleStatus
-
-      CliChannel --> CommandDispatcher
-      ApiChannel --> CommandDispatcher
-
-      CommandDispatcher --> TaskManagerFacade
-      CommandDispatcher --> DatabaseFacade
-      CommandDispatcher --> AlgoritmiOptimizare
-    }
-
-    DatabaseFacade ..> Scenariu : persists
-    DatabaseFacade ..> ConfiguratieSemaforizare : persists
-
-    @enduml
+@enduml
